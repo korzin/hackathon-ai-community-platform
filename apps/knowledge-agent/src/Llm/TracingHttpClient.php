@@ -102,6 +102,11 @@ final class TracingHttpClient implements HttpClientInterface
                 'feature_name' => $featureName,
                 'trace_id' => $traceId,
             ];
+
+            $body['tags'] = [
+                'agent:'.$this->serviceName,
+                'method:'.$featureName,
+            ];
         }
 
         return new HttpRequest(

@@ -89,6 +89,9 @@ def run_ranking() -> int:
             user=user_tag,
             metadata=metadata,
             extra_headers=llm_headers,
+            extra_body={
+                "tags": [f"agent:{SERVICE_NAME}", f"method:{FEATURE_NAME}"],
+            },
         )
 
         raw = response.choices[0].message.content or "{}"

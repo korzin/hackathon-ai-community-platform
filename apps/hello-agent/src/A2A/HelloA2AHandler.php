@@ -241,6 +241,10 @@ final class HelloA2AHandler
                 'feature_name' => $featureName,
                 'trace_id' => $traceId,
             ],
+            'tags' => [
+                'agent:'.self::SERVICE_NAME,
+                'method:'.$featureName,
+            ],
             'max_tokens' => 200,
         ], \JSON_THROW_ON_ERROR);
 

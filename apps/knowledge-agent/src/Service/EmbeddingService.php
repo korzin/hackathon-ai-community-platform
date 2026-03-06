@@ -57,6 +57,17 @@ final class EmbeddingService
                 'model' => $this->embeddingModel,
                 'input' => $text,
                 'user' => $userTag,
+                'metadata' => [
+                    'request_id' => $requestId,
+                    'service_name' => self::SERVICE_NAME,
+                    'agent_name' => self::SERVICE_NAME,
+                    'feature_name' => $featureName,
+                    'trace_id' => $traceId,
+                ],
+                'tags' => [
+                    'agent:'.self::SERVICE_NAME,
+                    'method:'.$featureName,
+                ],
             ],
         ]);
 

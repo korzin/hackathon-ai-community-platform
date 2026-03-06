@@ -21,7 +21,7 @@ final class LiteLlmClient
      *
      * @return array<string, mixed>
      */
-    public function chatCompletion(array $messages, array $tools = []): array
+    public function chatCompletion(array $messages, array $tools = [], ?LlmRequestContext $context = null): array
     {
         $body = [
             'model' => $this->model,
@@ -34,6 +34,17 @@ final class LiteLlmClient
             $body['tool_choice'] = 'auto';
         }
 
+        if (null !== $context) {
+            $body['tags'] = $context->tags();
+            $body['metadata'] = $context->metadata();
+            $body['user'] = \sprintf(
+                'service=%s;feature=%s;request_id=%s',
+                $context->agentName,
+                $context->featureName,
+                $context->requestId,
+            );
+        }
+
         $json = json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
 
         $headers = [
@@ -41,6 +52,16 @@ final class LiteLlmClient
             'Authorization: Bearer '.$this->apiKey,
             'Content-Length: '.strlen($json),
         ];
+
+        if (null !== $context) {
+            $headers[] = 'X-Request-Id: '.$context->requestId;
+            $headers[] = 'X-Service-Name: '.$context->agentName;
+            $headers[] = 'X-Agent-Name: '.$context->agentName;
+            $headers[] = 'X-Feature-Name: '.$context->featureName;
+            if ('' !== $context->traceId) {
+                $headers[] = 'X-Trace-Id: '.$context->traceId;
+            }
+        }
 
         $context = stream_context_create([
             'http' => [

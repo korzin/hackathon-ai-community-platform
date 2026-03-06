@@ -40,12 +40,49 @@
 
 Щоб у LiteLLM логах було видно корисний контекст, агенти додають у LLM-запити:
 
-- заголовки: `X-Request-Id`, `X-Service-Name`, `X-Agent-Name`, `X-Feature-Name`
-- додатково `X-Trace-Id` (коли доступний trace context)
-- поле `user` у payload з тегами `service`, `feature`, `request_id`
-- поле `metadata` у chat completion викликах (`request_id`, `service_name`, `agent_name`, `feature_name`, `trace_id`)
+### Обов'язкові поля (MUST)
 
-Це застосовано для `hello-agent`, `knowledge-agent` і `news-maker-agent`.
+- **`tags`** — масив рядків для фільтрації та групування у LiteLLM spend logs:
+  - `agent:<agent-name>` — ім'я агента (e.g. `agent:hello-agent`)
+  - `method:<feature-name>` — назва скіла/методу (e.g. `method:a2a.hello.greet`)
+- **`metadata`** — об'єкт з кореляційними ID:
+  - `request_id` — унікальний ID запиту
+  - `trace_id` — distributed trace ID
+  - `service_name`, `agent_name`, `feature_name` — контекст виклику
+
+### Рекомендовані поля
+
+- **`user`** — рядок у форматі `service=<name>;feature=<feature>;request_id=<id>`
+- **HTTP заголовки**: `X-Request-Id`, `X-Service-Name`, `X-Agent-Name`, `X-Feature-Name`, `X-Trace-Id`
+
+### Приклад payload
+
+```json
+{
+  "model": "minimax/minimax-m2.5",
+  "messages": [...],
+  "tags": ["agent:hello-agent", "method:a2a.hello.greet"],
+  "metadata": {
+    "request_id": "req_abc123",
+    "trace_id": "trace_def456",
+    "service_name": "hello-agent",
+    "agent_name": "hello-agent",
+    "feature_name": "a2a.hello.greet"
+  },
+  "user": "service=hello-agent;feature=a2a.hello.greet;request_id=req_abc123"
+}
+```
+
+### Реалізація по агентах
+
+| Агент | Мова | Як додати tags |
+|-------|------|----------------|
+| `core` | PHP | `LlmRequestContext` DTO → `LiteLlmClient::chatCompletion()` |
+| `hello-agent` | PHP | Вручну в `callLlm()` body |
+| `knowledge-agent` | PHP | `TracingHttpClient` декоратор (автоматично) |
+| `news-maker-agent` | Python | `extra_body={"tags": [...]}` в OpenAI client |
+
+Це застосовано для `core`, `hello-agent`, `knowledge-agent` і `news-maker-agent`.
 
 ### 3) LiteLLM DB (для `/ui/login`)
 

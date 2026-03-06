@@ -7,6 +7,7 @@ namespace App\Command;
 use App\A2AGateway\A2AClient;
 use App\A2AGateway\SkillCatalogBuilder;
 use App\LLM\LiteLlmClient;
+use App\LLM\LlmRequestContext;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -101,8 +102,15 @@ final class AgentChatCommand extends Command
         while ($iteration < self::MAX_TOOL_ITERATIONS) {
             ++$iteration;
 
+            $llmContext = new LlmRequestContext(
+                agentName: 'core',
+                featureName: 'core.agent_chat',
+                requestId: 'chat_'.bin2hex(random_bytes(8)),
+                traceId: $traceId,
+            );
+
             try {
-                $response = $this->llmClient->chatCompletion($messages, $openAiTools);
+                $response = $this->llmClient->chatCompletion($messages, $openAiTools, $llmContext);
             } catch (\Throwable $e) {
                 $output->writeln(sprintf('<fg=red>LLM error: %s</>', $e->getMessage()));
                 break;
