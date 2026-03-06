@@ -1,16 +1,20 @@
 """Agent 1: Ranker — scores and selects up to 10 raw news items per run."""
 import json
 import logging
+import uuid
 
 from openai import OpenAI
 
 from app.config import settings
 from app.database import SessionLocal
+from app.middleware.trace import request_id_var, trace_id_var
 from app.models.models import AgentSettings, RawNewsItem
 
 logger = logging.getLogger(__name__)
 
 MAX_SELECTED = 10
+SERVICE_NAME = "news-maker-agent"
+FEATURE_NAME = "news.ranker.run_ranking"
 
 
 def _get_client() -> OpenAI:
@@ -18,6 +22,23 @@ def _get_client() -> OpenAI:
         base_url=f"{settings.litellm_base_url}/v1",
         api_key=settings.litellm_api_key,
     )
+
+
+def _trace_context() -> tuple[str, str, dict[str, str], str]:
+    request_id = request_id_var.get("") or f"llm-ranker-{uuid.uuid4()}"
+    trace_id = trace_id_var.get("")
+    headers = {
+        "x-request-id": request_id,
+        "x-service-name": SERVICE_NAME,
+        "x-agent-name": SERVICE_NAME,
+        "x-feature-name": FEATURE_NAME,
+    }
+    if trace_id:
+        headers["x-trace-id"] = trace_id
+
+    user_tag = f"service={SERVICE_NAME};feature={FEATURE_NAME};request_id={request_id}"
+
+    return request_id, trace_id, headers, user_tag
 
 
 def run_ranking() -> int:
@@ -49,6 +70,14 @@ def run_ranking() -> int:
         )
 
         client = _get_client()
+        request_id, trace_id, llm_headers, user_tag = _trace_context()
+        metadata = {
+            "request_id": request_id,
+            "service_name": SERVICE_NAME,
+            "agent_name": SERVICE_NAME,
+            "feature_name": FEATURE_NAME,
+            "trace_id": trace_id,
+        }
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -57,6 +86,9 @@ def run_ranking() -> int:
             ],
             response_format={"type": "json_object"},
             temperature=0.3,
+            user=user_tag,
+            metadata=metadata,
+            extra_headers=llm_headers,
         )
 
         raw = response.choices[0].message.content or "{}"
@@ -88,7 +120,13 @@ def run_ranking() -> int:
                 item.status = "scored"
 
         db.commit()
-        logger.info("Ranking complete: %d/%d selected", selected_count, len(new_items))
+        logger.info(
+            "Ranking complete: %d/%d selected (llm_request_id=%s, trace_id=%s)",
+            selected_count,
+            len(new_items),
+            request_id,
+            trace_id,
+        )
         return selected_count
 
     except Exception as exc:

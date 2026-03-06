@@ -76,7 +76,18 @@ final class LogsController extends AbstractController
         if ('' !== $query) {
             $must[] = ['multi_match' => [
                 'query' => $query,
-                'fields' => ['message', 'exception.message', 'trace_id', 'request_id', 'request_uri'],
+                'fields' => [
+                    'message',
+                    'exception.message',
+                    'trace_id',
+                    'request_id',
+                    'request_uri',
+                    'event_name',
+                    'step',
+                    'tool',
+                    'intent',
+                    'error_code',
+                ],
                 'type' => 'phrase_prefix',
             ]];
         }
@@ -91,10 +102,10 @@ final class LogsController extends AbstractController
 
         $range = [];
         if ('' !== $dateFrom) {
-            $range['gte'] = $dateFrom . 'T00:00:00Z';
+            $range['gte'] = $dateFrom.'T00:00:00Z';
         }
         if ('' !== $dateTo) {
-            $range['lte'] = $dateTo . 'T23:59:59Z';
+            $range['lte'] = $dateTo.'T23:59:59Z';
         }
         if ([] !== $range) {
             $filter[] = ['range' => ['@timestamp' => $range]];

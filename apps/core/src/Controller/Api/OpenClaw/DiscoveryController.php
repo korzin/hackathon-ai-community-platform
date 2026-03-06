@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Controller\Api\OpenClaw;
 
 use App\AgentDiscovery\DiscoveryBuilder;
+use App\Logging\PayloadSanitizer;
+use App\Logging\TraceEvent;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -22,6 +24,7 @@ final class DiscoveryController extends AbstractController
         private readonly DiscoveryBuilder $discoveryBuilder,
         private readonly CacheItemPoolInterface $cache,
         private readonly LoggerInterface $logger,
+        private readonly PayloadSanitizer $payloadSanitizer,
         private readonly string $gatewayToken,
     ) {
     }
@@ -42,6 +45,32 @@ final class DiscoveryController extends AbstractController
         if ($item->isHit()) {
             /** @var array<string, mixed> $cached */
             $cached = $item->get();
+            $cachedTools = [];
+            foreach ((array) ($cached['tools'] ?? []) as $tool) {
+                /** @var array<string, mixed> $tool */
+                $schema = $tool['input_schema'] ?? [];
+                $schemaJson = json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $cachedTools[] = [
+                    'name' => (string) ($tool['name'] ?? ''),
+                    'agent' => (string) ($tool['agent'] ?? ''),
+                    'description' => (string) ($tool['description'] ?? ''),
+                    'input_schema_fingerprint' => hash('sha256', false === $schemaJson ? '' : $schemaJson),
+                ];
+            }
+            $cachedSanitized = $this->payloadSanitizer->sanitize([
+                'generated_at' => $cached['generated_at'] ?? null,
+                'tool_count' => \count((array) ($cached['tools'] ?? [])),
+                'tools' => $cachedTools,
+            ]);
+            $this->logger->info(
+                'Discovery served from cache',
+                TraceEvent::build('core.discovery.cache_hit', 'discovery_fetch', 'core', 'completed', [
+                    'target_app' => 'openclaw',
+                    'tool_count' => \count((array) ($cached['tools'] ?? [])),
+                    'step_output' => $cachedSanitized['data'],
+                    'capture_meta' => $cachedSanitized['capture_meta'],
+                ]),
+            );
             $this->logger->debug('Discovery served from cache');
 
             return $this->json($cached);
@@ -54,6 +83,32 @@ final class DiscoveryController extends AbstractController
         $this->cache->save($item);
 
         $toolCount = \count($payload['tools'] ?? []);
+        $tools = [];
+        foreach ((array) ($payload['tools'] ?? []) as $tool) {
+            /** @var array<string, mixed> $tool */
+            $schema = $tool['input_schema'] ?? [];
+            $schemaJson = json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $tools[] = [
+                'name' => (string) ($tool['name'] ?? ''),
+                'agent' => (string) ($tool['agent'] ?? ''),
+                'description' => (string) ($tool['description'] ?? ''),
+                'input_schema_fingerprint' => hash('sha256', false === $schemaJson ? '' : $schemaJson),
+            ];
+        }
+        $sanitized = $this->payloadSanitizer->sanitize([
+            'generated_at' => $payload['generated_at'] ?? null,
+            'tool_count' => $toolCount,
+            'tools' => $tools,
+        ]);
+        $this->logger->info(
+            'Discovery payload built',
+            TraceEvent::build('core.discovery.snapshot', 'discovery_response', 'core', 'completed', [
+                'target_app' => 'openclaw',
+                'tool_count' => $toolCount,
+                'step_output' => $sanitized['data'],
+                'capture_meta' => $sanitized['capture_meta'],
+            ]),
+        );
         $this->logger->info('Discovery payload built', ['tool_count' => $toolCount]);
 
         return $this->json($payload);

@@ -97,6 +97,17 @@ Structured logs MUST include:
 - `event`
 - `error.code` / `error.message` (for failures)
 
+For step-level A2A/OpenClaw traces, logs MUST additionally include:
+
+- `event_name`
+- `step`
+- `source_app`
+- `target_app` (when applicable)
+- `status`
+- `sequence_order`
+- `duration_ms` (for terminal events)
+- sanitized step context fields: `step_input`, `step_output`, `capture_meta`
+
 Plain text logs without correlation fields are NOT sufficient.
 
 ## 7. Prompt and Data Safety

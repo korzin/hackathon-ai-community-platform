@@ -24,14 +24,16 @@ class LogGroupingCest
     {
         $this->login($I);
 
-        $traceId = 'test-trace-' . uniqid();
+        $traceId = 'test-trace-'.uniqid();
 
         // Тестуємо чи вьюха логів підтримує структуру з відступами та кольоровими мітками додатку
-        $I->sendGet('/admin/logs/trace/' . $traceId);
+        $I->sendGet('/admin/logs/trace/'.$traceId);
 
         $I->seeResponseCodeIs(200);
         $I->seeResponseContains($traceId);
         $I->seeResponseContains('trace-indent');
         $I->seeResponseContains('app-col');
+        $I->seeResponseContains('sequence-diagram');
+        $I->seeResponseContains('sequence-event');
     }
 }

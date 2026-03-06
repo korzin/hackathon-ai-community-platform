@@ -169,4 +169,3 @@ final class AgentRegistryRepositoryTest extends Unit
         ];
     }
 }
-

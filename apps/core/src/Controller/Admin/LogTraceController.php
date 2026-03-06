@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Admin;
 
 use App\Logging\LogIndexManager;
+use App\Logging\TraceSequenceProjector;
 use App\Security\AdminUser;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,6 +16,7 @@ final class LogTraceController extends AbstractController
 {
     public function __construct(
         private readonly LogIndexManager $indexManager,
+        private readonly TraceSequenceProjector $sequenceProjector,
     ) {
     }
 
@@ -72,6 +74,7 @@ final class LogTraceController extends AbstractController
                 $spans[$reqId]['logs'][] = $source;
             }
         }
+        $sequenceProjection = $this->sequenceProjector->project($hits);
 
         $totalDurationMs = 0;
         if (null !== $traceStartTime && null !== $traceEndTime) {
@@ -103,13 +106,15 @@ final class LogTraceController extends AbstractController
         }
 
         // Sort spans by start time
-        usort($processedSpans, fn($a, $b) => $a['offset_ms'] <=> $b['offset_ms']);
+        usort($processedSpans, fn ($a, $b) => $a['offset_ms'] <=> $b['offset_ms']);
 
         return $this->render('admin/log_trace.html.twig', [
             'username' => $user->getUserIdentifier(),
             'trace_id' => $traceId,
             'hits' => $hits,
             'spans' => $processedSpans,
+            'sequence_events' => $sequenceProjection['events'],
+            'participants' => $sequenceProjection['participants'],
             'total_duration_ms' => round((float) $totalDurationMs, 2),
         ]);
     }

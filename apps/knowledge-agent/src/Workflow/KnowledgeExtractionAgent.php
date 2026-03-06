@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Workflow;
 
 use App\Controller\Admin\KnowledgeAdminController;
+use App\Llm\TracingHttpClient;
+use App\Logging\TraceContext;
 use App\Repository\SettingsRepository;
 use NeuronAI\Agent\Agent;
 use NeuronAI\Agent\SystemPrompt;
+use NeuronAI\HttpClient\GuzzleHttpClient;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAILike;
 
@@ -19,15 +22,24 @@ final class KnowledgeExtractionAgent extends Agent
         private readonly string $model = 'minimax/minimax-m2.5',
         private readonly string $baseInstructions = '',
         private readonly ?SettingsRepository $settingsRepository = null,
+        private readonly ?TraceContext $traceContext = null,
     ) {
     }
 
     protected function provider(): AIProviderInterface
     {
+        $httpClient = new GuzzleHttpClient();
+        if (null !== $this->traceContext) {
+            $httpClient = new TracingHttpClient($httpClient, $this->traceContext);
+        }
+
         return new OpenAILike(
             $this->litellmBaseUrl.'/v1',
             $this->litellmApiKey,
             $this->model,
+            [],
+            false,
+            $httpClient,
         );
     }
 

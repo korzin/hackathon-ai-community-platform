@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Controller\Api;
 
 use App\A2A\HelloA2AHandler;
+use App\Logging\PayloadSanitizer;
+use App\Logging\TraceEvent;
 use App\Observability\LangfuseIngestionClient;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -18,6 +20,7 @@ final class A2AController extends AbstractController
     public function __construct(
         private readonly HelloA2AHandler $handler,
         private readonly LangfuseIngestionClient $langfuse,
+        private readonly PayloadSanitizer $payloadSanitizer,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -29,9 +32,19 @@ final class A2AController extends AbstractController
         $data = json_decode($request->getContent(), true);
 
         if (!\is_array($data) || !isset($data['intent'])) {
-            $this->logger->warning('Invalid A2A payload received', [
+            $sanitized = $this->payloadSanitizer->sanitize([
+                'raw' => $request->getContent(),
                 'ip' => $request->getClientIp(),
             ]);
+            $this->logger->warning(
+                'Invalid A2A payload received',
+                TraceEvent::build('hello.a2a.inbound.invalid_payload', 'a2a_inbound', 'hello-agent', 'failed', [
+                    'target_app' => 'core',
+                    'error_code' => 'invalid_payload',
+                    'step_input' => $sanitized['data'],
+                    'capture_meta' => $sanitized['capture_meta'],
+                ]),
+            );
 
             return $this->json(
                 ['error' => 'Invalid A2A payload: intent is required'],
@@ -44,27 +57,41 @@ final class A2AController extends AbstractController
         $intent = (string) ($data['intent'] ?? 'unknown');
         $data['trace_id'] = $traceId;
         $data['request_id'] = $requestId;
+        $sanitizedInput = $this->payloadSanitizer->sanitize($data);
 
-        $this->logger->info('A2A request received', [
-            'intent' => $intent,
-            'trace_id' => $traceId,
-            'request_id' => $requestId,
-        ]);
+        $this->logger->info(
+            'A2A request received',
+            TraceEvent::build('hello.a2a.inbound.received', 'a2a_inbound', 'hello-agent', 'started', [
+                'target_app' => 'core',
+                'intent' => $intent,
+                'trace_id' => $traceId,
+                'request_id' => $requestId,
+                'step_input' => $sanitizedInput['data'],
+                'capture_meta' => $sanitizedInput['capture_meta'],
+            ]),
+        );
 
         $start = microtime(true);
 
         $result = $this->handler->handle($data);
         $durationMs = (int) ((microtime(true) - $start) * 1000);
         $this->langfuse->recordA2ARequest($traceId, $requestId, $intent, (array) ($data['payload'] ?? []), $result, $durationMs);
+        $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
 
         $status = (string) ($result['status'] ?? 'unknown');
-        $this->logger->info('A2A request completed', [
-            'intent' => $intent,
-            'status' => $status,
-            'duration_ms' => $durationMs,
-            'trace_id' => $traceId,
-            'request_id' => $requestId,
-        ]);
+        $this->logger->info(
+            'A2A request completed',
+            TraceEvent::build('hello.a2a.inbound.completed', 'a2a_inbound', 'hello-agent', $status, [
+                'target_app' => 'core',
+                'intent' => $intent,
+                'duration_ms' => $durationMs,
+                'trace_id' => $traceId,
+                'request_id' => $requestId,
+                'step_output' => $sanitizedOutput['data'],
+                'capture_meta' => $sanitizedOutput['capture_meta'],
+                'error_code' => 'failed' === $status ? (string) ($result['error'] ?? 'intent_failed') : null,
+            ]),
+        );
 
         return $this->json($result);
     }

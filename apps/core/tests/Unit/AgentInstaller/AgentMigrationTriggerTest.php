@@ -50,4 +50,3 @@ final class AgentMigrationTriggerTest extends Unit
         ]);
     }
 }
-

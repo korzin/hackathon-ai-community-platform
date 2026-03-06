@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\AgentDiscovery;
 
 use App\AgentRegistry\AgentRegistryInterface;
+use App\Logging\PayloadSanitizer;
+use App\Logging\TraceEvent;
 use App\Observability\LangfuseIngestionClient;
 use App\Observability\TraceContext;
 use Doctrine\DBAL\Connection;
@@ -16,6 +18,7 @@ final class AgentInvokeBridge
         private readonly AgentRegistryInterface $registry,
         private readonly Connection $dbal,
         private readonly LangfuseIngestionClient $langfuse,
+        private readonly PayloadSanitizer $payloadSanitizer,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -39,6 +42,16 @@ final class AgentInvokeBridge
             $capabilities = (array) ($manifest['capabilities'] ?? []);
 
             if (in_array($tool, $capabilities, true)) {
+                $this->logger->info(
+                    'Tool resolved to enabled agent',
+                    TraceEvent::build('core.invoke.tool_resolved', 'tool_resolve', 'core', 'completed', [
+                        'target_app' => (string) $agent['name'],
+                        'tool' => $tool,
+                        'trace_id' => $traceId,
+                        'request_id' => $requestId,
+                    ]),
+                );
+
                 return $this->callAgent($agent, $manifest, $tool, $input, $traceId, $requestId);
             }
         }
@@ -59,6 +72,16 @@ final class AgentInvokeBridge
                     'agent' => (string) $agent['name'],
                     'trace_id' => $traceId,
                 ]);
+                $this->logger->warning(
+                    'Tool found on disabled agent',
+                    TraceEvent::build('core.invoke.tool_disabled', 'tool_resolve', 'core', 'failed', [
+                        'target_app' => (string) $agent['name'],
+                        'tool' => $tool,
+                        'trace_id' => $traceId,
+                        'request_id' => $requestId,
+                        'error_code' => 'agent_disabled',
+                    ]),
+                );
                 $this->auditLog($tool, (string) $agent['name'], $traceId, $requestId, 0, 'failed');
 
                 return ['status' => 'failed', 'reason' => 'agent_disabled'];
@@ -66,6 +89,16 @@ final class AgentInvokeBridge
         }
 
         $this->logger->warning('Unknown tool requested', ['tool' => $tool, 'trace_id' => $traceId]);
+        $this->logger->warning(
+            'Unknown tool requested',
+            TraceEvent::build('core.invoke.unknown_tool', 'tool_resolve', 'core', 'failed', [
+                'target_app' => 'unknown',
+                'tool' => $tool,
+                'trace_id' => $traceId,
+                'request_id' => $requestId,
+                'error_code' => 'unknown_tool',
+            ]),
+        );
 
         return ['status' => 'failed', 'reason' => 'unknown_tool'];
     }
@@ -94,6 +127,16 @@ final class AgentInvokeBridge
                 'tool' => $tool,
                 'trace_id' => $traceId,
             ]);
+            $this->logger->warning(
+                'Agent has no A2A endpoint',
+                TraceEvent::build('core.a2a.endpoint_missing', 'tool_resolve', 'core', 'failed', [
+                    'target_app' => $agentName,
+                    'tool' => $tool,
+                    'trace_id' => $traceId,
+                    'request_id' => $requestId,
+                    'error_code' => 'no_a2a_endpoint',
+                ]),
+            );
             $this->auditLog($tool, $agentName, $traceId, $requestId, 0, 'failed');
 
             return ['status' => 'failed', 'reason' => 'no_a2a_endpoint'];
@@ -131,6 +174,22 @@ final class AgentInvokeBridge
             'x-agent-run-id' => $agentRunId,
             'x-a2a-hop' => '1',
         ];
+        $sanitizedInput = $this->payloadSanitizer->sanitize($payload);
+        $sanitizedHeaders = $this->payloadSanitizer->sanitize($headers);
+        $this->logger->info(
+            'A2A outbound started',
+            TraceEvent::build('core.a2a.outbound.started', 'a2a_outbound', 'core', 'started', [
+                'target_app' => $agentName,
+                'tool' => $tool,
+                'intent' => $tool,
+                'trace_id' => $traceId,
+                'request_id' => $requestId,
+                'agent_run_id' => $agentRunId,
+                'step_input' => $sanitizedInput['data'],
+                'request_headers' => $sanitizedHeaders['data'],
+                'capture_meta' => $sanitizedInput['capture_meta'],
+            ]),
+        );
         $httpStatusCode = 0;
 
         try {
@@ -141,6 +200,22 @@ final class AgentInvokeBridge
             /** @var array<string, mixed> $result */
             $result = json_decode($response['body'], true, 512, JSON_THROW_ON_ERROR);
             $status = (string) ($result['status'] ?? 'unknown');
+            $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
+            $this->logger->info(
+                'A2A outbound completed',
+                TraceEvent::build('core.a2a.outbound.completed', 'a2a_outbound', 'core', $status, [
+                    'target_app' => $agentName,
+                    'tool' => $tool,
+                    'intent' => $tool,
+                    'trace_id' => $traceId,
+                    'request_id' => $requestId,
+                    'agent_run_id' => $agentRunId,
+                    'duration_ms' => $durationMs,
+                    'step_output' => $sanitizedOutput['data'],
+                    'capture_meta' => $sanitizedOutput['capture_meta'],
+                    'error_code' => 'failed' === $status ? (string) ($result['reason'] ?? 'a2a_failed') : null,
+                ]),
+            );
         } catch (\Throwable $e) {
             $durationMs = (int) ((microtime(true) - $start) * 1000);
             $status = 'failed';
@@ -152,6 +227,23 @@ final class AgentInvokeBridge
                 'trace_id' => $traceId,
                 'exception' => $e,
             ]);
+            $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
+            $this->logger->error(
+                'A2A outbound failed',
+                TraceEvent::build('core.a2a.outbound.failed', 'a2a_outbound', 'core', 'failed', [
+                    'target_app' => $agentName,
+                    'tool' => $tool,
+                    'intent' => $tool,
+                    'trace_id' => $traceId,
+                    'request_id' => $requestId,
+                    'agent_run_id' => $agentRunId,
+                    'duration_ms' => $durationMs,
+                    'step_output' => $sanitizedOutput['data'],
+                    'capture_meta' => $sanitizedOutput['capture_meta'],
+                    'error_code' => 'a2a_error',
+                    'exception' => $e,
+                ]),
+            );
         }
 
         if ('failed' !== $status) {
@@ -232,13 +324,14 @@ final class AgentInvokeBridge
 
     private function extractStatusCode(): int
     {
-        global $http_response_header;
-
-        if (!isset($http_response_header) || !is_array($http_response_header) || [] === $http_response_header) {
+        $headers = function_exists('http_get_last_response_headers')
+            ? http_get_last_response_headers()
+            : null;
+        if (!is_array($headers) || [] === $headers) {
             return 0;
         }
 
-        if (1 !== preg_match('/HTTP\\/\\d+(?:\\.\\d+)?\\s+(\\d{3})/', (string) $http_response_header[0], $matches)) {
+        if (1 !== preg_match('/HTTP\\/\\d+(?:\\.\\d+)?\\s+(\\d{3})/', (string) $headers[0], $matches)) {
             return 0;
         }
 

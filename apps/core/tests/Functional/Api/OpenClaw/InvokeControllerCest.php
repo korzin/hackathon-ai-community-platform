@@ -66,6 +66,7 @@ final class InvokeControllerCest
         $I->haveHttpHeader('Authorization', 'Bearer '.$this->gatewayToken());
         $I->haveHttpHeader('Content-Type', 'application/json');
         $I->sendPost('/api/v1/agents/invoke', json_encode([
+            'trace_id' => 'trace-provided-001',
             'tool' => 'nonexistent.tool',
             'input' => [],
         ], JSON_THROW_ON_ERROR));
@@ -73,5 +74,22 @@ final class InvokeControllerCest
         $I->seeResponseCodeIs(200);
         $I->seeResponseIsJson();
         $I->seeResponseContainsJson(['status' => 'failed', 'reason' => 'unknown_tool']);
+        $I->seeResponseContainsJson(['trace_id' => 'trace-provided-001']);
+        $I->seeResponseJsonMatchesJsonPath('$.request_id');
+    }
+
+    public function invokeWithoutTraceIdReturnsGeneratedTraceId(\FunctionalTester $I): void
+    {
+        $I->haveHttpHeader('Authorization', 'Bearer '.$this->gatewayToken());
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->sendPost('/api/v1/agents/invoke', json_encode([
+            'tool' => 'nonexistent.tool',
+            'input' => [],
+        ], JSON_THROW_ON_ERROR));
+
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseJsonMatchesJsonPath('$.trace_id');
+        $I->seeResponseJsonMatchesJsonPath('$.request_id');
     }
 }

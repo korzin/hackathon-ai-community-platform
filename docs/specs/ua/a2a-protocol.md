@@ -56,6 +56,29 @@ A2A потрібен для того, щоб:
 - агент не повинен ламати базовий envelope контракт
 - помилки мають повертатися структуровано, а не "мовчки"
 
+## Вимоги До Step-Level Observability
+
+Кожен критичний крок A2A ланцюга повинен логуватися структуровано:
+
+- `event_name`
+- `step`
+- `source_app`
+- `target_app` (за наявності)
+- `trace_id`
+- `request_id`
+- `status`
+- `duration_ms` (для завершених/помилкових кроків)
+- `sequence_order`
+
+Для діагностики мають зберігатися санітизовані контексти:
+
+- `step_input`
+- `step_output`
+- `request_headers` (санітизовані)
+- `capture_meta` (`is_truncated`, `original_size_bytes`, `captured_size_bytes`, `redacted_fields_count`, `truncated_values_count`)
+
+Секрети (`token`, `authorization`, `api_key`, `secret`, `password`, `cookie`) повинні редагуватися до збереження в лог.
+
 ## Out Of Scope Для MVP
 
 - складний streaming-протокол

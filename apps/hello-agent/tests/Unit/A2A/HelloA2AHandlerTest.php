@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit\A2A;
 
 use App\A2A\HelloA2AHandler;
+use App\Logging\PayloadSanitizer;
 use Codeception\Test\Unit;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
@@ -12,15 +13,17 @@ use Psr\Log\LoggerInterface;
 final class HelloA2AHandlerTest extends Unit
 {
     private LoggerInterface&MockObject $logger;
+    private PayloadSanitizer $payloadSanitizer;
 
     protected function setUp(): void
     {
         $this->logger = $this->createMock(LoggerInterface::class);
+        $this->payloadSanitizer = new PayloadSanitizer();
     }
 
     public function testGreetWithoutApiKeyReturnsFallback(): void
     {
-        $handler = new HelloA2AHandler($this->logger, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
 
         $result = $handler->handle([
             'intent' => 'hello.greet',
@@ -33,7 +36,7 @@ final class HelloA2AHandlerTest extends Unit
 
     public function testGreetWithCustomName(): void
     {
-        $handler = new HelloA2AHandler($this->logger, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
 
         $result = $handler->handle([
             'intent' => 'hello.greet',
@@ -46,7 +49,7 @@ final class HelloA2AHandlerTest extends Unit
 
     public function testUnknownIntentReturnsFailed(): void
     {
-        $handler = new HelloA2AHandler($this->logger, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
 
         $result = $handler->handle([
             'intent' => 'unknown.action',
@@ -60,7 +63,7 @@ final class HelloA2AHandlerTest extends Unit
 
     public function testGreetPreservesRequestId(): void
     {
-        $handler = new HelloA2AHandler($this->logger, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
 
         $result = $handler->handle([
             'intent' => 'hello.greet',
@@ -73,7 +76,7 @@ final class HelloA2AHandlerTest extends Unit
 
     public function testGreetGeneratesRequestIdWhenMissing(): void
     {
-        $handler = new HelloA2AHandler($this->logger, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
 
         $result = $handler->handle([
             'intent' => 'hello.greet',
@@ -86,7 +89,7 @@ final class HelloA2AHandlerTest extends Unit
 
     public function testGreetWithUnicodeName(): void
     {
-        $handler = new HelloA2AHandler($this->logger, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
 
         $result = $handler->handle([
             'intent' => 'hello.greet',

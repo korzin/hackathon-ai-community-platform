@@ -181,6 +181,40 @@ $this->logger->info("A2A call to {$agentName} for {$tool} took {$durationMs}ms w
 
 Структурований контекст дозволяє шукати та фільтрувати логи в OpenSearch.
 
+## Canonical Trace Step Event
+
+Для кроків A2A/OpenClaw використовуйте уніфікований event-контракт у context:
+
+- `event_name` — стабільний machine-readable ідентифікатор (`core.a2a.outbound.started`, `openclaw.discovery.snapshot`, ...)
+- `step` — нормалізований крок (`discovery_fetch`, `invoke_request`, `tool_resolve`, `a2a_outbound`, `a2a_inbound`, `llm_call`)
+- `source_app`, `target_app`
+- `trace_id`, `request_id`, `agent_run_id` (якщо є)
+- `tool`, `intent`
+- `status` (`started|completed|failed|skipped`)
+- `duration_ms`
+- `error_code` (для failure)
+- `sequence_order` (монотонний порядок подій)
+
+Для drill-down:
+
+- `step_input` — санітизований input кроку
+- `step_output` — санітизований output кроку
+- `request_headers` — санітизовані заголовки
+- `capture_meta` — `{is_truncated, original_size_bytes, captured_size_bytes, redacted_fields_count, truncated_values_count}`
+
+## Redaction Policy
+
+Payload sanitizer обов'язково редагує ключі, що містять:
+
+- `token`
+- `authorization`
+- `api_key` / `apikey`
+- `secret`
+- `password`
+- `cookie`
+
+Великі поля обрізаються, але структура payload зберігається. UI має показувати лише санітизовані дані.
+
 ## Admin UI
 
 ### Перегляд логів: `/admin/logs`
@@ -198,6 +232,9 @@ $this->logger->info("A2A call to {$agentName} for {$tool} took {$durationMs}ms w
 ### Trace view: `/admin/logs/trace/{traceId}`
 
 Показує всі логи одного trace відсортовані по часу.
+
+- **Sequence Diagram (primary):** відображає виклики у форматі `source_app -> target_app` по структурованих trace event.
+- **Click-to-inspect:** клік по події відкриває деталі `step_input`, `step_output`, `headers`, `capture_meta`, `error_code`, `exception`.
 
 - **Групування та Відступи:** Логи мають бути згруповані по `request_id` (одному A2A виклику). Відступи зліва або лінійні маркери мають чітко показувати: "Хто викликав (наприклад, OpenClaw) → Що відповів Core → Як він передав виклик в Hello-agent".
 - **Кольорова індикація:** Різні додатки (core, hello-agent) мають маркуватися різними кольорами для швидкого візуального сприйняття в ланцюгу `trace_id`.

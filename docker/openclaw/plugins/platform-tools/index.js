@@ -46,6 +46,20 @@ let flushTimer = null;
 function osLog(levelName, message, context, traceId, requestId) {
   /** @type {Record<string, number>} */
   const levelValues = { DEBUG: 100, INFO: 200, WARNING: 300, ERROR: 400 };
+  /** @type {string[]} */
+  const promotedKeys = [
+    "event_name",
+    "step",
+    "source_app",
+    "target_app",
+    "tool",
+    "intent",
+    "status",
+    "duration_ms",
+    "error_code",
+    "agent_run_id",
+    "sequence_order",
+  ];
 
   /** @type {Record<string, unknown>} */
   const doc = {
@@ -59,7 +73,18 @@ function osLog(levelName, message, context, traceId, requestId) {
 
   if (traceId) doc.trace_id = traceId;
   if (requestId) doc.request_id = requestId;
-  if (context && Object.keys(context).length > 0) doc.context = context;
+  if (context && Object.keys(context).length > 0) {
+    const remaining = { ...context };
+    for (const key of promotedKeys) {
+      if (Object.prototype.hasOwnProperty.call(remaining, key)) {
+        doc[key] = remaining[key];
+        delete remaining[key];
+      }
+    }
+    if (Object.keys(remaining).length > 0) {
+      doc.context = remaining;
+    }
+  }
 
   logBuffer.push(doc);
 
@@ -114,15 +139,132 @@ function generateId(prefix = "id") {
 }
 
 /**
- * Truncate a value for logging (avoid giant payloads in logs).
- * @param {unknown} val
+ * @param {Record<string, unknown>} payload
+ * @returns {Record<string, unknown>}
+ */
+function eventCtx(payload) {
+  return {
+    source_app: APP_NAME,
+    sequence_order: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+    ...payload,
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function normalizeValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeValue);
+  }
+
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = normalizeValue(v);
+    }
+    return out;
+  }
+
+  if (typeof value === "bigint") {
+    return String(value);
+  }
+
+  return value;
+}
+
+/**
+ * @param {string} key
+ * @returns {boolean}
+ */
+function isSensitiveKey(key) {
+  const normalized = key.toLowerCase();
+  return [
+    "token",
+    "authorization",
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "cookie",
+  ].some((needle) => normalized.includes(needle));
+}
+
+/**
+ * @param {unknown} value
+ * @param {{redacted: number, truncated: number}} counters
+ * @returns {unknown}
+ */
+function sanitizeValue(value, counters) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(item, counters));
+  }
+
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (isSensitiveKey(k)) {
+        counters.redacted += 1;
+        out[k] = "[REDACTED]";
+      } else {
+        out[k] = sanitizeValue(v, counters);
+      }
+    }
+    return out;
+  }
+
+  if (typeof value === "string" && value.length > 1024) {
+    counters.truncated += 1;
+    return `${value.slice(0, 1024)}...[truncated]`;
+  }
+
+  return value;
+}
+
+/**
+ * @param {unknown} value
  * @param {number} [maxLen]
+ * @returns {{data: unknown, capture_meta: Record<string, unknown>}}
+ */
+function sanitizeForLog(value, maxLen = 16384) {
+  const normalized = normalizeValue(value);
+  const counters = { redacted: 0, truncated: 0 };
+  let data = sanitizeValue(normalized, counters);
+
+  const originalJson = JSON.stringify(normalized) || "";
+  let capturedJson = JSON.stringify(data) || "";
+  let isTruncated = false;
+
+  if (capturedJson.length > maxLen) {
+    isTruncated = true;
+    data = { _truncated: true, _preview: capturedJson.slice(0, maxLen) };
+    capturedJson = JSON.stringify(data) || "";
+  }
+
+  return {
+    data,
+    capture_meta: {
+      is_truncated: isTruncated,
+      original_size_bytes: originalJson.length,
+      captured_size_bytes: capturedJson.length,
+      redacted_fields_count: counters.redacted,
+      truncated_values_count: counters.truncated,
+    },
+  };
+}
+
+/**
+ * @param {unknown} value
  * @returns {string}
  */
-function truncate(val, maxLen = 500) {
-  const str = typeof val === "string" ? val : JSON.stringify(val);
-  if (!str) return "";
-  return str.length > maxLen ? str.slice(0, maxLen) + "…" : str;
+function schemaFingerprint(value) {
+  const str = JSON.stringify(normalizeValue(value)) || "";
+  let hash = 5381;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash * 33) ^ str.charCodeAt(i);
+  }
+  return `djb2_${(hash >>> 0).toString(16)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +279,13 @@ function truncate(val, maxLen = 500) {
 async function fetchDiscovery(log) {
   const requestId = generateId("req");
 
-  osLog("INFO", "Discovery request started", { url: DISCOVERY_URL }, undefined, requestId);
+  osLog("INFO", "Discovery request started", eventCtx({
+    event_name: "openclaw.discovery.fetch.started",
+    step: "discovery_fetch",
+    target_app: "core",
+    status: "started",
+    url: DISCOVERY_URL,
+  }), undefined, requestId);
   log.debug?.(`[platform-tools] Fetching discovery from ${DISCOVERY_URL}`);
 
   const start = Date.now();
@@ -149,11 +297,16 @@ async function fetchDiscovery(log) {
   const durationMs = Date.now() - start;
 
   if (!res.ok) {
-    osLog("ERROR", `Discovery request failed: ${res.status} ${res.statusText}`, {
+    osLog("ERROR", `Discovery request failed: ${res.status} ${res.statusText}`, eventCtx({
+      event_name: "openclaw.discovery.fetch.failed",
+      step: "discovery_fetch",
+      target_app: "core",
+      status: "failed",
+      error_code: "discovery_http_error",
       url: DISCOVERY_URL,
       http_status: res.status,
       duration_ms: durationMs,
-    }, undefined, requestId);
+    }), undefined, requestId);
 
     throw new Error(
       `Discovery request failed: ${res.status} ${res.statusText}`
@@ -162,14 +315,37 @@ async function fetchDiscovery(log) {
 
   const data = await res.json();
   const tools = data.tools || [];
+  const snapshot = tools.map((/** @type {{name: string, agent: string, description: string, input_schema?: object}} */ t) => ({
+    name: t.name,
+    agent: t.agent,
+    description: t.description,
+    input_schema_fingerprint: schemaFingerprint(t.input_schema || {}),
+  }));
+  const sanitizedSnapshot = sanitizeForLog({
+    generated_at: data.generated_at || null,
+    tool_count: tools.length,
+    tools: snapshot,
+  });
 
-  osLog("INFO", `Discovery completed: ${tools.length} tool(s) found`, {
+  osLog("INFO", `Discovery completed: ${tools.length} tool(s) found`, eventCtx({
+    event_name: "openclaw.discovery.fetch.completed",
+    step: "discovery_fetch",
+    target_app: "core",
+    status: "completed",
     url: DISCOVERY_URL,
     http_status: res.status,
     duration_ms: durationMs,
     tool_count: tools.length,
     tool_names: tools.map((/** @type {{name: string}} */ t) => t.name),
-  }, undefined, requestId);
+  }), undefined, requestId);
+  osLog("INFO", "Discovery snapshot captured", eventCtx({
+    event_name: "openclaw.discovery.snapshot",
+    step: "discovery_response",
+    target_app: "core",
+    status: "completed",
+    step_output: sanitizedSnapshot.data,
+    capture_meta: sanitizedSnapshot.capture_meta,
+  }), undefined, requestId);
 
   log.debug?.(
     `[platform-tools] Discovery response parsed: ${tools.length} tool(s)`
@@ -187,12 +363,19 @@ async function fetchDiscovery(log) {
 async function invokeTool(tool, input, log) {
   const traceId = generateId("trace");
   const requestId = generateId("req");
+  const sanitizedInput = sanitizeForLog(input);
 
-  osLog("INFO", `Invoke request: tool=${tool}`, {
+  osLog("INFO", `Invoke request: tool=${tool}`, eventCtx({
+    event_name: "openclaw.invoke.request.started",
+    step: "invoke_request",
+    target_app: "core",
+    status: "started",
     tool,
+    intent: tool,
     url: INVOKE_URL,
-    input_summary: truncate(input),
-  }, traceId, requestId);
+    step_input: sanitizedInput.data,
+    capture_meta: sanitizedInput.capture_meta,
+  }), traceId, requestId);
 
   log.debug?.(
     `[platform-tools] Sending invoke request: tool=${tool}, trace_id=${traceId}`
@@ -223,14 +406,22 @@ async function invokeTool(tool, input, log) {
       // ignore
     }
 
-    osLog("ERROR", `Invoke failed: tool=${tool}, status=${res.status}`, {
+    const sanitizedOutput = sanitizeForLog({ response_body: responseBody });
+    osLog("ERROR", `Invoke failed: tool=${tool}, status=${res.status}`, eventCtx({
+      event_name: "openclaw.invoke.request.failed",
+      step: "invoke_request",
+      target_app: "core",
+      status: "failed",
+      error_code: "invoke_http_error",
       tool,
+      intent: tool,
       url: INVOKE_URL,
       http_status: res.status,
       http_status_text: res.statusText,
       duration_ms: durationMs,
-      response_body: truncate(responseBody, 1000),
-    }, traceId, requestId);
+      step_output: sanitizedOutput.data,
+      capture_meta: sanitizedOutput.capture_meta,
+    }), traceId, requestId);
 
     log.warn?.(
       `[platform-tools] Invoke failed: tool=${tool}, status=${res.status}, duration=${durationMs}ms`
@@ -240,15 +431,23 @@ async function invokeTool(tool, input, log) {
 
   const result = await res.json();
   const status = result.status || "unknown";
+  const sanitizedOutput = sanitizeForLog(result);
 
-  osLog("INFO", `Invoke completed: tool=${tool}, status=${status}`, {
+  osLog("INFO", `Invoke completed: tool=${tool}, status=${status}`, eventCtx({
+    event_name: "openclaw.invoke.request.completed",
+    step: "invoke_request",
+    target_app: "core",
+    status,
+    error_code: status === "failed" ? "invoke_failed" : undefined,
     tool,
+    intent: tool,
     url: INVOKE_URL,
     http_status: res.status,
     duration_ms: durationMs,
     result_status: status,
-    response_summary: truncate(result, 1000),
-  }, traceId, requestId);
+    step_output: sanitizedOutput.data,
+    capture_meta: sanitizedOutput.capture_meta,
+  }), traceId, requestId);
 
   log.info?.(
     `[platform-tools] Invoke completed: tool=${tool}, status=${status}, duration=${durationMs}ms`
@@ -308,22 +507,37 @@ module.exports = function platformTools(api) {
           parameters: toToolParameters(tool.input_schema),
 
           async execute(_id, params) {
-            osLog("INFO", `Tool execute: ${tool.name} on agent ${tool.agent}`, {
-              tool_name: tool.name,
-              agent: tool.agent,
-              params_summary: truncate(params),
-            });
+            const traceId = generateId("trace");
+            const requestId = generateId("req");
+            const sanitizedInput = sanitizeForLog(params);
+            osLog("INFO", `Tool execute: ${tool.name} on agent ${tool.agent}`, eventCtx({
+              event_name: "openclaw.tool.execute.started",
+              step: "tool_execute",
+              target_app: tool.agent,
+              status: "started",
+              tool: tool.name,
+              intent: tool.name,
+              step_input: sanitizedInput.data,
+              capture_meta: sanitizedInput.capture_meta,
+            }), traceId, requestId);
 
             log.info?.(
               `[platform-tools] Invoking ${tool.name} on ${tool.agent}`
             );
             try {
               const result = await invokeTool(tool.name, params, log);
+              const sanitizedOutput = sanitizeForLog(result);
 
-              osLog("INFO", `Tool execute success: ${tool.name}`, {
-                tool_name: tool.name,
-                agent: tool.agent,
-              });
+              osLog("INFO", `Tool execute success: ${tool.name}`, eventCtx({
+                event_name: "openclaw.tool.execute.completed",
+                step: "tool_execute",
+                target_app: tool.agent,
+                status: "completed",
+                tool: tool.name,
+                intent: tool.name,
+                step_output: sanitizedOutput.data,
+                capture_meta: sanitizedOutput.capture_meta,
+              }), traceId, requestId);
 
               return {
                 content: [
@@ -336,12 +550,17 @@ module.exports = function platformTools(api) {
             } catch (/** @type {any} */ err) {
               const errMsg = err instanceof Error ? err.message : String(err);
 
-              osLog("ERROR", `Tool execute error: ${tool.name}: ${errMsg}`, {
-                tool_name: tool.name,
-                agent: tool.agent,
+              osLog("ERROR", `Tool execute error: ${tool.name}: ${errMsg}`, eventCtx({
+                event_name: "openclaw.tool.execute.failed",
+                step: "tool_execute",
+                target_app: tool.agent,
+                status: "failed",
+                error_code: "tool_execute_error",
+                tool: tool.name,
+                intent: tool.name,
                 error: errMsg,
                 stack: err instanceof Error ? err.stack : undefined,
-              });
+              }), traceId, requestId);
 
               log.error?.(
                 `[platform-tools] Invocation error: tool=${tool.name}, agent=${tool.agent}, error=${errMsg}`
@@ -379,10 +598,15 @@ module.exports = function platformTools(api) {
     .catch((/** @type {any} */ err) => {
       const errMsg = err instanceof Error ? err.message : String(err);
 
-      osLog("ERROR", `Failed to fetch discovery: ${errMsg}`, {
+      osLog("ERROR", `Failed to fetch discovery: ${errMsg}`, eventCtx({
+        event_name: "openclaw.discovery.fetch.failed",
+        step: "discovery_fetch",
+        target_app: "core",
+        status: "failed",
+        error_code: "discovery_exception",
         error: errMsg,
         stack: err instanceof Error ? err.stack : undefined,
-      });
+      }));
 
       log.error?.(
         `[platform-tools] Failed to fetch discovery: ${errMsg}`

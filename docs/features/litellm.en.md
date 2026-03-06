@@ -36,6 +36,17 @@ This key is used by local agents to call LiteLLM.
 Without a valid `OPENROUTER_API_KEY`, LiteLLM cannot execute completion/embedding requests against OpenRouter.
 The key is loaded from `.env.local` via `compose.yaml -> litellm.env_file`.
 
+## LLM Trace Context
+
+To make LiteLLM logs useful for debugging, agents add this context to LLM calls:
+
+- headers: `X-Request-Id`, `X-Service-Name`, `X-Agent-Name`, `X-Feature-Name`
+- optional `X-Trace-Id` when trace context exists
+- `user` payload field with `service`, `feature`, and `request_id` tags
+- `metadata` field on chat completion calls (`request_id`, `service_name`, `agent_name`, `feature_name`, `trace_id`)
+
+This is applied in `hello-agent`, `knowledge-agent`, and `news-maker-agent`.
+
 ### 3) LiteLLM DB (for `/ui/login`)
 
 - `DATABASE_URL=postgresql://app:app@postgres:5432/litellm`

@@ -6,6 +6,7 @@ namespace App\Tests\Unit\AgentDiscovery;
 
 use App\AgentDiscovery\AgentInvokeBridge;
 use App\AgentRegistry\AgentRegistryInterface;
+use App\Logging\PayloadSanitizer;
 use App\Observability\LangfuseIngestionClient;
 use Codeception\Test\Unit;
 use Doctrine\DBAL\Connection;
@@ -26,7 +27,7 @@ final class AgentInvokeBridgeTest extends Unit
         $this->dbal = $this->createMock(Connection::class);
         $langfuse = new LangfuseIngestionClient(false, '', '', '', 'test', new NullLogger());
         $this->logger = $this->createMock(LoggerInterface::class);
-        $this->bridge = new AgentInvokeBridge($this->registry, $this->dbal, $langfuse, $this->logger);
+        $this->bridge = new AgentInvokeBridge($this->registry, $this->dbal, $langfuse, new PayloadSanitizer(), $this->logger);
     }
 
     public function testInvokeReturnsFailedForUnknownTool(): void
@@ -80,10 +81,11 @@ final class AgentInvokeBridgeTest extends Unit
         $this->registry->method('findEnabled')->willReturn([]);
         $this->registry->method('findAll')->willReturn([$agent]);
 
-        $this->logger->expects($this->once())
+        $this->logger->expects($this->atLeastOnce())
             ->method('warning')
             ->with('Tool found on disabled agent', $this->callback(
-                fn (array $ctx): bool => 'warn.tool' === $ctx['tool'] && 'warn-agent' === $ctx['agent'],
+                fn (array $ctx): bool => 'warn.tool' === ($ctx['tool'] ?? null)
+                    && ('warn-agent' === ($ctx['agent'] ?? null) || 'warn-agent' === ($ctx['target_app'] ?? null)),
             ));
 
         $this->bridge->invoke('warn.tool', [], 'trace-4', 'req-4');

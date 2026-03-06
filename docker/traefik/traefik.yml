@@ -25,3 +25,18 @@ providers:
 
 log:
   level: INFO
+
+accessLog:
+  format: json
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: drop
+      names:
+        X-Request-Id: keep
+        X-Service-Name: keep
+        X-Agent-Name: keep
+        X-Feature-Name: keep
+        X-Trace-Id: keep
+        Content-Type: keep
+        Authorization: redact

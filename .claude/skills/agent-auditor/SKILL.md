@@ -2,11 +2,10 @@
 name: agent-auditor
 description: >
   Audit agents in the AI Community Platform for structure, testing, security,
-  observability, networking, Traefik configuration, documentation, and standards
-  compliance. Use when the user asks to audit, review, check, or validate an
-  agent's quality, compliance, or readiness. Triggers on: "audit", "compliance",
-  "agent check", "quality gate", "convention check", "readiness review",
-  "platform standards", "network check", "traefik check".
+  observability, documentation, and standards compliance. Use when the user asks
+  to audit, review, check, or validate an agent's quality, compliance, or
+  readiness. Triggers on: "audit", "compliance", "agent check", "quality gate",
+  "convention check", "readiness review", "platform standards".
 ---
 
 # Agent Auditor
@@ -84,7 +83,6 @@ After tables, output a prioritized action list:
 | D | Documentation | All |
 | M | Database & Migrations | Agents with storage |
 | Q | Standards Compliance | All |
-| N | Network & Traefik | Agents only (not core) |
 
 ## Key File Locations
 
@@ -101,7 +99,6 @@ After tables, output a prioritized action list:
 | Agent PRDs | `docs/agents/en/<agent-prd>.md` |
 | Doc index | `index.md` |
 | Makefile | `Makefile` |
-| Traefik static config | `docker/traefik/traefik.yml` |
 
 ## CI Conversion Notes
 

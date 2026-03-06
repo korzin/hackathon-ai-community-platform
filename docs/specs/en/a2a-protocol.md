@@ -56,6 +56,29 @@ A2A exists so that:
 - an agent must not break the baseline envelope contract
 - errors must be returned in a structured way, not silently
 
+## Step-Level Observability Requirements
+
+Every critical A2A chain step should emit structured logs with:
+
+- `event_name`
+- `step`
+- `source_app`
+- `target_app` (when available)
+- `trace_id`
+- `request_id`
+- `status`
+- `duration_ms` (for terminal events)
+- `sequence_order`
+
+For debugging, services should capture sanitized context fields:
+
+- `step_input`
+- `step_output`
+- `request_headers` (sanitized)
+- `capture_meta` (`is_truncated`, `original_size_bytes`, `captured_size_bytes`, `redacted_fields_count`, `truncated_values_count`)
+
+Secrets (`token`, `authorization`, `api_key`, `secret`, `password`, `cookie`) must be redacted before log persistence.
+
 ## Out Of Scope For MVP
 
 - a complex streaming protocol

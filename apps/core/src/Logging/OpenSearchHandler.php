@@ -94,7 +94,25 @@ final class OpenSearchHandler extends AbstractProcessingHandler
             'channel' => $record->channel,
         ];
 
-        $promotedKeys = ['trace_id', 'request_id', 'app_name', 'request_uri', 'request_method', 'client_ip'];
+        $promotedKeys = [
+            'trace_id',
+            'request_id',
+            'app_name',
+            'request_uri',
+            'request_method',
+            'client_ip',
+            'event_name',
+            'step',
+            'source_app',
+            'target_app',
+            'tool',
+            'intent',
+            'status',
+            'duration_ms',
+            'error_code',
+            'agent_run_id',
+            'sequence_order',
+        ];
         foreach ($promotedKeys as $key) {
             if (isset($record->extra[$key])) {
                 $data[$key] = $record->extra[$key];
@@ -108,6 +126,12 @@ final class OpenSearchHandler extends AbstractProcessingHandler
 
         if ([] !== $record->context) {
             $context = $record->context;
+            foreach ($promotedKeys as $key) {
+                if (isset($context[$key])) {
+                    $data[$key] = $context[$key];
+                    unset($context[$key]);
+                }
+            }
 
             if (isset($context['exception']) && $context['exception'] instanceof \Throwable) {
                 $e = $context['exception'];
