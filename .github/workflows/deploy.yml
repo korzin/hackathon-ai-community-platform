@@ -145,8 +145,8 @@ jobs:
       - name: Setup SSH key
         shell: bash
         env:
-          SSH_HOST: ${{ vars.SSH_HOST }}
-          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
@@ -157,10 +157,11 @@ jobs:
       - name: Deploy changed services
         shell: bash
         env:
-          SSH_HOST: ${{ vars.SSH_HOST }}
-          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
-          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_USER: ${{ secrets.SSH_USER }}
           APP_PATH: ${{ vars.APP_PATH }}
+          TARGET_REF: ${{ github.ref_name }}
           SERVICES_CSV: ${{ needs.detect-services.outputs.services_csv }}
         run: |
           set -euo pipefail
@@ -174,9 +175,14 @@ jobs:
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
             set -euo pipefail
             cd '$APP_PATH'
-            git fetch --all
-            git checkout main
-            git pull --ff-only
+            git fetch --all --prune
+            if git show-ref --verify --quiet refs/remotes/origin/$TARGET_REF; then
+              git checkout -B \"$TARGET_REF\" \"origin/$TARGET_REF\"
+              git pull --ff-only origin \"$TARGET_REF\"
+            else
+              git checkout \"$TARGET_REF\"
+              git pull --ff-only
+            fi
             COMPOSE_ARGS='-f compose.yaml -f compose.core.yaml'
             for f in compose.agent-*.yaml; do
               [ -f \"\$f\" ] && COMPOSE_ARGS=\"\$COMPOSE_ARGS -f \$f\"
