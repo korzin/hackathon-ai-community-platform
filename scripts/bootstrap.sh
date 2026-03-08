@@ -67,7 +67,11 @@ ok "Wrote $CLAW_ENV"
 CLAW_STATE="$REPO_ROOT/.local/openclaw/state"
 mkdir -p "$CLAW_STATE"
 
-# 4. Build openclaw.json
+# 4. Sync frontdesk workspace policy files
+"$REPO_ROOT/scripts/sync-openclaw-frontdesk.sh"
+ok "Synced frontdesk workspace policy files"
+
+# 5. Build openclaw.json
 CLAW_CONFIG="$CLAW_STATE/openclaw.json"
 
 # Detect LLM provider and default model
@@ -223,7 +227,7 @@ else
   warn "openclaw.json already exists — skipping (delete it to regenerate)"
 fi
 
-# 5. Run provider onboard (non-interactive) if stack is up
+# 6. Run provider onboard (non-interactive) if stack is up
 if docker compose ps --status running openclaw-cli 2>/dev/null | grep -q openclaw-cli; then
   info "OpenClaw CLI is running — configuring provider key..."
 
@@ -261,7 +265,7 @@ else
   warn "OpenClaw CLI not running — run 'make up' then 'make bootstrap' again to configure provider keys"
 fi
 
-# 6. Summary
+# 7. Summary
 echo ""
 echo "  ─────────────────────────────────"
 echo "  Done! Next steps:"

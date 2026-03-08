@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\A2A;
 
 use App\OpenSearch\KnowledgeRepository;
+use App\Repository\SourceMessageRepository;
 use App\RabbitMQ\RabbitMQPublisher;
 use App\Service\EmbeddingService;
 use App\Service\KnowledgeTreeBuilder;
@@ -18,6 +19,7 @@ final class KnowledgeA2AHandler
         private readonly MessageChunker $chunker,
         private readonly RabbitMQPublisher $publisher,
         private readonly EmbeddingService $embeddingService,
+        private readonly SourceMessageRepository $sourceMessageRepository,
     ) {
     }
 
@@ -30,14 +32,16 @@ final class KnowledgeA2AHandler
     {
         $intent = (string) ($request['intent'] ?? '');
         $requestId = (string) ($request['request_id'] ?? uniqid('a2a_', true));
+        $traceId = (string) ($request['trace_id'] ?? '');
 
         /** @var array<string, mixed> $payload */
         $payload = $request['payload'] ?? [];
 
         return match ($intent) {
-            'search_knowledge' => $this->handleSearch($payload, $requestId),
-            'extract_from_messages' => $this->handleExtract($payload, $requestId),
-            'get_tree' => $this->handleGetTree($requestId),
+            'search_knowledge', 'knowledge.search' => $this->handleSearch($payload, $requestId),
+            'extract_from_messages', 'knowledge.upload' => $this->handleExtract($payload, $requestId),
+            'get_tree', 'knowledge.get_tree' => $this->handleGetTree($requestId),
+            'knowledge.store_message', 'store_message' => $this->handleStoreMessage($payload, $requestId, $traceId),
             default => [
                 'status' => 'failed',
                 'request_id' => $requestId,
@@ -129,6 +133,33 @@ final class KnowledgeA2AHandler
             'status' => 'completed',
             'request_id' => $requestId,
             'result' => ['tree' => $tree],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
+     */
+    private function handleStoreMessage(array $payload, string $requestId, string $traceId): array
+    {
+        if ([] === $payload) {
+            return [
+                'status' => 'failed',
+                'request_id' => $requestId,
+                'error' => 'message payload is required',
+            ];
+        }
+
+        $id = $this->sourceMessageRepository->upsert($payload, $requestId, '' === $traceId ? null : $traceId);
+
+        return [
+            'status' => 'completed',
+            'request_id' => $requestId,
+            'result' => [
+                'stored' => true,
+                'id' => $id,
+            ],
         ];
     }
 }

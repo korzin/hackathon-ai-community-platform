@@ -20,6 +20,9 @@ parameters:
     app.edge_auth_cookie_name: '%env(EDGE_AUTH_COOKIE_NAME)%'
     app.edge_auth_token_ttl: '%env(int:EDGE_AUTH_TOKEN_TTL)%'
     app.edge_auth_login_base_url: '%env(EDGE_AUTH_LOGIN_BASE_URL)%'
+    app.litellm_base_url: '%env(LITELLM_BASE_URL)%'
+    app.litellm_api_key: '%env(LITELLM_API_KEY)%'
+    app.llm_model: '%env(LLM_MODEL)%'
 
 services:
     _defaults:
@@ -38,20 +41,24 @@ services:
         arguments:
             $cache: '@cache.agent_registry'
 
-    App\AgentDiscovery\OpenClawSyncService:
+    App\A2AGateway\SkillCatalogSyncService:
         arguments:
             $cache: '@cache.agent_registry'
             $pushUrl: '%app.openclaw_discovery_push_url%'
             $gatewayToken: '%app.openclaw_gateway_token%'
 
-    App\Controller\Api\OpenClaw\DiscoveryController:
+    App\Controller\Api\A2AGateway\DiscoveryController:
         arguments:
             $cache: '@cache.agent_registry'
             $gatewayToken: '%app.openclaw_gateway_token%'
 
-    App\Controller\Api\OpenClaw\InvokeController:
+    App\Controller\Api\A2AGateway\SendMessageController:
         arguments:
             $gatewayToken: '%app.openclaw_gateway_token%'
+
+    App\A2AGateway\A2AClient:
+        arguments:
+            $internalToken: '%app.internal_token%'
 
     App\AgentInstaller\Strategy\PostgresInstallStrategy:
         arguments:
@@ -72,6 +79,10 @@ services:
             $opensearch: '@App\AgentInstaller\Strategy\OpenSearchInstallStrategy'
 
     App\AgentInstaller\AgentMigrationTrigger:
+        arguments:
+            $internalToken: '%app.internal_token%'
+
+    App\AgentAction\NewsCrawlTrigger:
         arguments:
             $internalToken: '%app.internal_token%'
 
@@ -112,6 +123,9 @@ services:
         tags:
             - { name: monolog.processor }
 
+    App\Logging\LogSearchInterface:
+        alias: App\Logging\LogIndexManager
+
     App\Logging\LogIndexManager:
         arguments:
             $opensearchUrl: '%app.opensearch_url%'
@@ -120,3 +134,9 @@ services:
         arguments:
             $defaultRetentionDays: '%app.log_retention_days%'
             $defaultMaxSizeGb: '%app.log_max_size_gb%'
+
+    App\LLM\LiteLlmClient:
+        arguments:
+            $baseUrl: '%app.litellm_base_url%'
+            $apiKey: '%app.litellm_api_key%'
+            $model: '%app.llm_model%'

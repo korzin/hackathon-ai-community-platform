@@ -8,7 +8,9 @@ class KnowledgeApiCest
 {
     private function internalToken(): string
     {
-        return 'test-internal-token';
+        $token = $_ENV['APP_INTERNAL_TOKEN'] ?? $_SERVER['APP_INTERNAL_TOKEN'] ?? 'dev-internal-token';
+
+        return (string) $token;
     }
 
     public function healthEndpointReturns200(\FunctionalTester $I): void
@@ -46,6 +48,25 @@ class KnowledgeApiCest
         $I->haveHttpHeader('Content-Type', 'application/json');
         $I->sendPost('/api/v1/knowledge/a2a', json_encode(['request' => ['intent' => 'get_tree']], \JSON_THROW_ON_ERROR));
         $I->seeResponseCodeIs(401);
+    }
+
+    public function a2aAcceptsDirectEnvelopeForStoreMessageIntent(\FunctionalTester $I): void
+    {
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->haveHttpHeader('X-Platform-Internal-Token', $this->internalToken());
+        $I->sendPost('/api/v1/knowledge/a2a', json_encode([
+            'intent' => 'knowledge.store_message',
+            'request_id' => 'req-functional-store-message',
+            'payload' => [],
+        ], \JSON_THROW_ON_ERROR));
+
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseContainsJson([
+            'status' => 'failed',
+            'request_id' => 'req-functional-store-message',
+            'error' => 'message payload is required',
+        ]);
     }
 
     public function entryGetReturns404ForUnknownId(\FunctionalTester $I): void

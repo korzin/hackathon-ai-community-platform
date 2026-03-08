@@ -14,6 +14,7 @@ services:
       - "8084:8084"
       - "8085:8085"
       - "8086:8086"
+      - "8087:8087"
     volumes:
       - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -99,6 +100,9 @@ services:
     environment:
       LITELLM_MASTER_KEY: dev-key
       DATABASE_URL: postgresql://app:app@postgres:5432/litellm
+      LANGFUSE_PUBLIC_KEY: lf_pk_local_dev
+      LANGFUSE_SECRET_KEY: lf_sk_local_dev
+      LANGFUSE_HOST: http://langfuse-web:3000
     command:
       - "--config=/app/config.yaml"
       - "--host=0.0.0.0"

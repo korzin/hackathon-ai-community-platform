@@ -92,7 +92,7 @@ After tables, output a prioritized action list:
 | Dockerfiles | `docker/<agent>/Dockerfile` |
 | Compose config | `compose.yaml` |
 | Convention spec | `docs/agent-requirements/conventions.md` |
-| Manifest schema | `apps/core/config/agent-manifest.schema.json` |
+| Agent Card schema | `apps/core/config/agent-card.schema.json` |
 | Observability spec | `docs/agent-requirements/observability-requirements.md` |
 | Storage spec | `docs/agent-requirements/storage-provisioning.md` |
 | Test case spec | `docs/agent-requirements/test-cases.md` |

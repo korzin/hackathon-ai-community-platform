@@ -30,3 +30,24 @@ services:
       - litellm
     networks:
       - dev-edge
+
+  hello-agent-e2e:
+    profiles: [e2e]
+    build:
+      context: .
+      dockerfile: docker/hello-agent/Dockerfile
+    environment:
+      LANGFUSE_ENABLED: "false"
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: dev-key
+      LLM_MODEL: minimax/minimax-m2.5
+      OPENSEARCH_URL: http://opensearch:9200
+    ports:
+      - "18085:80"
+    volumes:
+      - ./apps/hello-agent:/var/www/html
+    depends_on:
+      - opensearch
+      - litellm
+    networks:
+      - dev-edge

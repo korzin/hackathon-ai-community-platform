@@ -32,11 +32,11 @@ pattern. The Docker label provides an explicit opt-in for non-standard service n
 
 ---
 
-## 2. Manifest Endpoint
+## 2. Agent Card Endpoint
 
 **`GET /api/v1/manifest`** — REQUIRED, no authentication.
 
-Returns agent metadata used by core for registration, capability routing, and OpenClaw tool catalog.
+Returns the Agent Card — agent metadata used by core for registration, skill routing, and the A2A Gateway skill catalog.
 
 ### Minimum valid response (HTTP 200):
 
@@ -44,25 +44,53 @@ Returns agent metadata used by core for registration, capability routing, and Op
 {
   "name": "knowledge-agent",
   "version": "1.2.0",
-  "capabilities": ["search_knowledge", "extract_from_messages"]
+  "url": "http://knowledge-agent/api/v1/knowledge/a2a",
+  "skills": [
+    { "id": "knowledge.search", "name": "Knowledge Search", "description": "Search the knowledge base" }
+  ]
 }
 ```
 
-### Full response schema:
+### Full response schema (aligned with official A2A AgentCard):
 
 ```json
 {
-  "name":         "string (required) — stable slug, kebab-case",
-  "version":      "string (required) — semver e.g. 1.0.0",
-  "description":  "string (optional)",
-  "capabilities": ["string", "..."] ,
-  "a2a_endpoint": "string (URL, required if capabilities non-empty)",
-  "health_url":   "string (URL, optional — defaults to /health on same host)",
-  "admin_url":    "string (URL, optional — link to agent admin panel)",
-  "capability_schemas": {
-    "<capability>": {
-      "input_schema": { "type": "object", "properties": {} }
+  "name":               "string (required) — stable slug, kebab-case",
+  "version":            "string (required) — semver e.g. 1.0.0",
+  "description":        "string (recommended)",
+  "url":                "string (URL) — A2A Server endpoint (replaces deprecated a2a_endpoint)",
+  "provider":           { "organization": "string", "url": "string (URL)" },
+  "capabilities":       { "streaming": false, "pushNotifications": false },
+  "defaultInputModes":  ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id":          "skill.name",
+      "name":        "Human-Readable Name",
+      "description": "What this skill does",
+      "tags":        ["tag1"],
+      "examples":    ["Example prompt"]
     }
+  ],
+  "skill_schemas": { "<skill-id>": { "input_schema": {} } },
+  "permissions":        ["admin"],
+  "commands":           ["/wiki"],
+  "events":             ["message.created"],
+  "health_url":         "string (URL, optional)",
+  "admin_url":          "string (optional)",
+  "storage":            {
+    "postgres": {
+      "db_name": "string",
+      "user": "string",
+      "password": "string",
+      "startup_migration": {
+        "enabled": true,
+        "mode": "best_effort",
+        "command": "php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration || true"
+      }
+    },
+    "redis": {},
+    "opensearch": {}
   }
 }
 ```
@@ -73,14 +101,18 @@ Returns agent metadata used by core for registration, capability routing, and Op
 |---|---|---|
 | `name` | ✅ | Stable identifier. Changing it creates a new agent in registry |
 | `version` | ✅ | Must follow semver `MAJOR.MINOR.PATCH` |
-| `capabilities` | ✅ | May be `[]` if agent has no A2A tools |
-| `a2a_endpoint` | if capabilities ≠ [] | Full URL to A2A handler |
-| `health_url` | ❌ | Defaults to `http://<service-hostname>/health` |
-| `admin_url` | ❌ | Shown as link in core admin panel |
+| `url` | if skills ≠ [] | A2A Server endpoint URL (official A2A field). Legacy `a2a_endpoint` accepted |
+| `skills` | recommended | Array of `AgentSkill` objects or legacy string IDs |
+| `capabilities` | recommended | A2A protocol capabilities: `{ streaming, pushNotifications }` |
+| `provider` | optional | `{ organization }` — service provider info |
+| `health_url` | optional | Defaults to `http://<service-hostname>/health` |
+| `admin_url` | optional | Shown as link in core admin panel |
+| `skill_schemas` | deprecated | Fold input schemas into structured skills instead |
+| `storage.postgres.startup_migration` | if `storage.postgres` exists | Startup migration contract. Must declare non-blocking command with `mode = best_effort` |
 
 ### Validation behavior in core:
 
-| Manifest state | Core behavior | Agent status |
+| Agent Card state | Core behavior | Agent status |
 |---|---|---|
 | Valid, all required fields | Full registration | `healthy` |
 | Valid but missing optional fields | Partial registration with warnings | `degraded` |
@@ -105,7 +137,7 @@ Core uses this endpoint for liveness polling every 60 seconds.
 
 ## 4. A2A Endpoint
 
-**`POST /api/v1/a2a`** — REQUIRED if `capabilities` is non-empty.
+**`POST /api/v1/a2a`** — REQUIRED if `skills` is non-empty.
 
 Standard request envelope:
 
@@ -137,13 +169,54 @@ Rules:
 
 ---
 
-## 5. Convention Verification in Core
+## 5. Inter-Agent Communication
+
+Agents MUST NOT call other agents directly by their Docker service name (e.g. `http://knowledge-agent/...`).
+All inter-agent communication MUST go through the A2A gateway in core via `PLATFORM_CORE_URL`:
+
+```
+POST {PLATFORM_CORE_URL}/api/v1/a2a/send-message
+```
+
+**Why:**
+
+- Core acts as a skill router — it resolves which agent handles a given skill and proxies the request.
+- Direct calls break E2E test isolation: E2E agents run as separate containers (`knowledge-agent-e2e`, `hello-agent-e2e`) and the direct URL would either hit a prod container or fail with DNS error.
+- Core provides unified auth, tracing, logging, and rate limiting for all A2A traffic.
+
+**Correct pattern:**
+
+```php
+// PHP: inject PLATFORM_CORE_URL from env
+$response = $httpClient->request('POST', $platformCoreUrl . '/api/v1/a2a/send-message', [
+    'json' => [
+        'tool'       => 'knowledge.search',
+        'input'      => ['query' => '...'],
+        'trace_id'   => $traceId,
+        'request_id' => $requestId,
+    ],
+]);
+```
+
+```python
+# Python: read PLATFORM_CORE_URL from env
+response = httpx.post(
+    f"{platform_core_url}/api/v1/a2a/send-message",
+    json={"tool": "knowledge.search", "input": {"query": "..."}, "trace_id": trace_id, "request_id": request_id},
+)
+```
+
+**Violation:** Any hardcoded `http://<other-agent-service>/` URL in agent source code is a convention violation.
+
+---
+
+## 6. Convention Verification in Core
 
 Core includes `AgentConventionVerifier` which checks all registered agents on demand and
 on every discovery cycle. It reports violations per-agent:
 
 ```
-VIOLATION [knowledge-agent]: a2a_endpoint missing but capabilities declared
+VIOLATION [knowledge-agent]: url (or a2a_endpoint) missing but skills declared
 VIOLATION [news-maker-agent]: version "1.0" does not match semver pattern
 ```
 
@@ -152,7 +225,7 @@ Admins can click a badge to view the full violation list.
 
 ---
 
-## 6. State Model In Admin UI
+## 7. State Model In Admin UI
 
 Admin state rendering (runtime `enabled/disabled` + health/convention states) is defined in:
 
@@ -164,14 +237,35 @@ This state model is a contract for:
 - badge semantics,
 - and stable selectors used by automated tests.
 
+### Lifecycle actions (install -> enable -> settings -> delete)
+
+Admin lifecycle for discovered agents is split into two tabs:
+
+- `Встановлені`: agents with `installed_at != null`
+- `Маркетплейс`: discoverable agents with `installed_at = null`
+
+Allowed actions and order:
+
+1. `POST /api/v1/internal/agents/{name}/install` — provisioning step (storage + migrations), does **not** enable traffic
+2. `POST /api/v1/internal/agents/{name}/enable` — runtime activation; requires prior install
+3. `GET /admin/agents/{name}/settings` — UI settings link is shown only for enabled installed agents
+4. `DELETE /api/v1/internal/agents/{name}` — full deprovision (Postgres/Redis/OpenSearch cleanup), returns agent to marketplace if still discoverable
+
+Postgres convention:
+
+- install provisions both primary DB (`db_name`) and E2E DB (`test_db_name` or `<db_name>_test`)
+- delete/deprovision removes both DBs and the declared DB role
+- agent MUST run startup migrations on each container start in non-blocking mode (`startup_migration.mode = best_effort`)
+- after code update, operators SHOULD run `docker compose restart <agent-service>` so startup migrations are applied
+
 ---
 
-## 7. Adding a New Agent — Checklist
+## 8. Adding a New Agent — Checklist
 
 1. Add service to `compose.yaml` with name ending `-agent` and label `ai.platform.agent=true`
 2. Implement `GET /api/v1/manifest` returning valid JSON
 3. Implement `GET /health` returning `{"status": "ok"}`
-4. If capabilities declared: implement `POST /api/v1/a2a`
+4. If skills declared: implement `POST /api/v1/a2a`
 5. Run `make conventions-test` — all checks must pass
 6. Core auto-discovers on next discovery cycle (up to 60s) or via "Run Discovery" in admin panel
 

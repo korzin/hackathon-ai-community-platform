@@ -4,14 +4,14 @@ exports.config = {
     output: './output',
     helpers: {
         Playwright: {
-            url: process.env.BASE_URL || 'http://localhost',
+            url: process.env.BASE_URL || 'http://localhost:18080',
             show: process.env.HEADLESS === 'false',
             browser: 'chromium',
             waitForNavigation: 'networkidle',
             waitForTimeout: 10000,
         },
         REST: {
-            endpoint: process.env.BASE_URL || 'http://localhost',
+            endpoint: process.env.BASE_URL || 'http://localhost:18080',
             defaultHeaders: {
                 Accept: 'application/json',
             },
@@ -24,6 +24,7 @@ exports.config = {
         loginPage: './support/pages/LoginPage.js',
         agentsPage: './support/pages/AgentsPage.js',
         logsPage: './support/pages/LogsPage.js',
+        chatsPage: './support/pages/ChatsPage.js',
     },
     name: 'ai-community-platform-e2e',
 };

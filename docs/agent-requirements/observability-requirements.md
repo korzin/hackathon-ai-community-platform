@@ -7,7 +7,7 @@ This document defines the minimum observability contract for all agents and orch
 These requirements apply to:
 
 - `OpenClaw` (entrypoint orchestrator)
-- `core` (routing and A2A bridge)
+- `core` (A2A Gateway — routing and bridging)
 - all specialized agents exposing A2A endpoints
 
 ## 2. Required Trace Context Propagation
@@ -52,7 +52,44 @@ Rules:
 - `hop` MUST match `x-a2a-hop`
 - agents MUST return `request_id` in the response envelope
 
-## 4. Required Span Model
+## 4. Required LLM Call Tagging
+
+Every outbound LLM API call (chat completions, embeddings) MUST include:
+
+### `tags` field (top-level array in request body)
+
+```json
+"tags": ["agent:<agent-name>", "method:<feature-name>"]
+```
+
+- `agent:<agent-name>` — stable service identifier (e.g. `agent:hello-agent`, `agent:core`)
+- `method:<feature-name>` — skill or operation being performed (e.g. `method:a2a.hello.greet`, `method:knowledge.embedding`)
+
+### `metadata` field (top-level object in request body)
+
+```json
+"metadata": {
+  "request_id": "...",
+  "trace_id": "...",
+  "trace_name": "...",
+  "session_id": "...",
+  "generation_name": "...",
+  "trace_metadata": {
+    "request_id": "...",
+    "session_id": "...",
+    "agent_name": "...",
+    "feature_name": "..."
+  }
+}
+```
+
+- `request_id` and `trace_id` are REQUIRED
+- `session_id` is REQUIRED for grouping and SHOULD be stable across all agent calls for one client message
+- `trace_name`, `generation_name`, `trace_metadata` are RECOMMENDED for Langfuse readability and filtering
+
+Tags are used for filtering and grouping in LiteLLM spend logs and dashboard.
+
+## 5. Required Span Model
 
 Each service MUST create these spans where applicable:
 
@@ -62,7 +99,7 @@ Each service MUST create these spans where applicable:
 4. `tool.call` for each local tool execution
 5. `storage.query` for DB/search/vector operations that materially affect latency or output
 
-## 5. Required Span Attributes
+## 6. Required Span Attributes
 
 Minimum attributes for `llm.inference` spans:
 
@@ -83,7 +120,7 @@ Minimum attributes for `a2a.call` spans:
 - `x-request-id`
 - `x-agent-run-id`
 
-## 6. Logging Requirements
+## 7. Logging Requirements
 
 Structured logs MUST include:
 
@@ -110,13 +147,13 @@ For step-level A2A/OpenClaw traces, logs MUST additionally include:
 
 Plain text logs without correlation fields are NOT sufficient.
 
-## 7. Prompt and Data Safety
+## 8. Prompt and Data Safety
 
 - production logs/traces MUST not store raw secrets, API keys, or access tokens
 - sensitive user data MUST be redacted or hashed before persistence
 - full prompt/response body logging MUST be configurable per environment
 
-## 8. OpenClaw Entry Point Rules
+## 9. OpenClaw Entry Point Rules
 
 `OpenClaw` MUST:
 
@@ -125,11 +162,12 @@ Plain text logs without correlation fields are NOT sufficient.
 - propagate trace/correlation headers to `core`
 - emit spans for routing decisions and downstream tool/agent calls
 
-## 9. Compliance Gate
+## 10. Compliance Gate
 
 A service is considered observability-compliant only if:
 
 1. it propagates required headers
-2. it emits required spans with required attributes
-3. it returns correlated A2A responses
-4. it uses structured logs with trace correlation
+2. it includes `tags` and `metadata` in all LLM API calls
+3. it emits required spans with required attributes
+4. it returns correlated A2A responses
+5. it uses structured logs with trace correlation

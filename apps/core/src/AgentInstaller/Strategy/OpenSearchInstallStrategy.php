@@ -35,6 +35,34 @@ final class OpenSearchInstallStrategy implements InstallStrategyInterface
         return $actions;
     }
 
+    public function deprovision(array $storageConfig, string $agentName): array
+    {
+        $collections = $storageConfig['collections'] ?? [];
+
+        if (!is_array($collections) || [] === $collections) {
+            return [];
+        }
+
+        $actions = [];
+
+        foreach ($collections as $collection) {
+            if (!is_string($collection) || '' === $collection) {
+                throw new AgentInstallException('OpenSearch collections must contain non-empty string values');
+            }
+
+            $indexName = sprintf('%s_%s', str_replace('-', '_', $agentName), $collection);
+
+            if (!$this->indexExists($indexName)) {
+                continue;
+            }
+
+            $this->deleteIndex($indexName);
+            $actions[] = sprintf('deleted_index:%s', $indexName);
+        }
+
+        return $actions;
+    }
+
     public function isProvisioned(array $storageConfig): bool
     {
         $collections = $storageConfig['collections'] ?? [];
@@ -103,6 +131,41 @@ final class OpenSearchInstallStrategy implements InstallStrategyInterface
 
         if (!isset($decoded['acknowledged']) || true !== $decoded['acknowledged']) {
             throw new AgentInstallException(sprintf('OpenSearch did not acknowledge index creation: %s — %s', $indexName, $response));
+        }
+    }
+
+    private function deleteIndex(string $indexName): void
+    {
+        $url = sprintf('%s/%s', rtrim($this->openSearchUrl, '/'), urlencode($indexName));
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'DELETE',
+                'timeout' => 10,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        $response = @file_get_contents($url, false, $context);
+        $headers = $http_response_header ?? [];
+
+        if (false === $response && [] === $headers) {
+            throw new AgentInstallException(sprintf('Failed to delete OpenSearch index: %s', $indexName));
+        }
+
+        $status = 0;
+        foreach ($headers as $header) {
+            if (preg_match('#^HTTP/\S+ (\d+)#', $header, $m)) {
+                $status = (int) $m[1];
+                break;
+            }
+        }
+
+        if (0 === $status) {
+            return;
+        }
+
+        if (!in_array($status, [200, 202, 404], true)) {
+            throw new AgentInstallException(sprintf('Unexpected OpenSearch delete status %d for index %s', $status, $indexName));
         }
     }
 }

@@ -5,7 +5,7 @@
 /**
  * OpenClaw plugin: Platform Tools Bridge
  *
- * Fetches the tool catalog from Core's /api/v1/agents/discovery endpoint
+ * Fetches the tool catalog from Core's /api/v1/a2a/discovery endpoint
  * and registers each tool so the LLM can invoke platform agents via A2A.
  *
  * Writes structured logs to OpenSearch so every request/response is visible
@@ -16,8 +16,10 @@ const PLATFORM_CORE_URL = /** @type {string} */ (process.env.PLATFORM_CORE_URL) 
 const PLATFORM_TOKEN = /** @type {string} */ (process.env.OPENCLAW_GATEWAY_TOKEN) || "";
 const OPENSEARCH_URL = /** @type {string} */ (process.env.OPENSEARCH_URL) || "";
 
-const DISCOVERY_URL = `${PLATFORM_CORE_URL}/api/v1/agents/discovery`;
-const INVOKE_URL = `${PLATFORM_CORE_URL}/api/v1/agents/invoke`;
+const DISCOVERY_URL = /** @type {string} */ (process.env.PLATFORM_DISCOVERY_URL)
+  || `${PLATFORM_CORE_URL}/api/v1/a2a/discovery`;
+const INVOKE_URL = /** @type {string} */ (process.env.PLATFORM_INVOKE_URL)
+  || `${PLATFORM_CORE_URL}/api/v1/a2a/send-message`;
 
 const APP_NAME = "openclaw";
 const INDEX_PREFIX = "platform_logs";
@@ -59,6 +61,10 @@ function osLog(levelName, message, context, traceId, requestId) {
     "error_code",
     "agent_run_id",
     "sequence_order",
+    "session_key",
+    "sender",
+    "recipient",
+    "channel",
   ];
 
   /** @type {Record<string, unknown>} */
@@ -485,6 +491,87 @@ module.exports = function platformTools(api) {
   });
 
   log.info?.("[platform-tools] Plugin initializing");
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle hooks — log every message in/out so the admin panel shows full
+  // conversation flow, including cases where no agent tool was called.
+  // ---------------------------------------------------------------------------
+
+  // Incoming user message
+  api.registerHook("message:preprocessed", (/** @type {any} */ event) => {
+    const text = event?.text || event?.message?.text || "";
+    const channel = event?.channelId || event?.channel || "unknown";
+    const sender = event?.sender || event?.from || event?.userId || "unknown";
+    const isGroup = !!event?.isGroup;
+    const groupId = event?.groupId || undefined;
+    const sessionKey = event?.sessionKey || undefined;
+    const traceId = generateId("trace");
+
+    const sanitized = sanitizeForLog({ text });
+
+    osLog("INFO", `Message received: channel=${channel}, sender=${sender}`, eventCtx({
+      event_name: "openclaw.message.received",
+      step: "message_inbound",
+      status: "completed",
+      channel,
+      sender,
+      is_group: isGroup,
+      group_id: groupId,
+      session_key: sessionKey,
+      step_input: sanitized.data,
+      capture_meta: sanitized.capture_meta,
+    }), traceId);
+
+    log.debug?.(`[platform-tools] Message received from ${sender} on ${channel}`);
+  }, { name: "platform-tools.message-received", description: "Log inbound messages to OpenSearch" });
+
+  // Outgoing bot response
+  api.registerHook("message:sent", (/** @type {any} */ event) => {
+    const text = event?.text || event?.message?.text || "";
+    const channel = event?.channelId || event?.channel || "unknown";
+    const recipient = event?.recipient || event?.to || event?.userId || "unknown";
+    const isGroup = !!event?.isGroup;
+    const groupId = event?.groupId || undefined;
+    const sessionKey = event?.sessionKey || undefined;
+    const traceId = generateId("trace");
+
+    const sanitized = sanitizeForLog({ text });
+
+    osLog("INFO", `Message sent: channel=${channel}, recipient=${recipient}`, eventCtx({
+      event_name: "openclaw.message.sent",
+      step: "message_outbound",
+      status: "completed",
+      channel,
+      recipient,
+      is_group: isGroup,
+      group_id: groupId,
+      session_key: sessionKey,
+      step_output: sanitized.data,
+      capture_meta: sanitized.capture_meta,
+    }), traceId);
+
+    log.debug?.(`[platform-tools] Message sent to ${recipient} on ${channel}`);
+  }, { name: "platform-tools.message-sent", description: "Log outbound messages to OpenSearch" });
+
+  // Session lifecycle
+  api.registerHook("session_start", (/** @type {any} */ event) => {
+    const sessionKey = event?.sessionKey || "unknown";
+    const channel = event?.channelId || event?.channel || "unknown";
+    const userId = event?.userId || event?.sender || "unknown";
+
+    osLog("INFO", `Session started: session=${sessionKey}, channel=${channel}`, eventCtx({
+      event_name: "openclaw.session.started",
+      step: "session_lifecycle",
+      status: "started",
+      channel,
+      session_key: sessionKey,
+      user_id: userId,
+    }));
+
+    log.debug?.(`[platform-tools] Session started: ${sessionKey}`);
+  }, { name: "platform-tools.session-started", description: "Log session start to OpenSearch" });
+
+  // ---------------------------------------------------------------------------
 
   fetchDiscovery(log)
     .then((tools) => {

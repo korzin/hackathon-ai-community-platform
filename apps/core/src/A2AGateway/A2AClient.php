@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\AgentDiscovery;
+namespace App\A2AGateway;
 
 use App\AgentRegistry\AgentRegistryInterface;
+use App\AgentRegistry\ManifestValidator;
 use App\Logging\PayloadSanitizer;
 use App\Logging\TraceEvent;
 use App\Observability\LangfuseIngestionClient;
@@ -12,7 +13,7 @@ use App\Observability\TraceContext;
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 
-final class AgentInvokeBridge
+final class A2AClient
 {
     public function __construct(
         private readonly AgentRegistryInterface $registry,
@@ -20,17 +21,18 @@ final class AgentInvokeBridge
         private readonly LangfuseIngestionClient $langfuse,
         private readonly PayloadSanitizer $payloadSanitizer,
         private readonly LoggerInterface $logger,
+        private readonly string $internalToken = '',
     ) {
     }
 
     /**
-     * Invoke an agent tool via the A2A bridge.
+     * Invoke an agent skill via the A2A gateway.
      *
      * @param array<string, mixed> $input
      *
      * @return array<string, mixed>
      */
-    public function invoke(string $tool, array $input, string $traceId, string $requestId): array
+    public function invoke(string $tool, array $input, string $traceId, string $requestId, string $actor = 'openclaw'): array
     {
         foreach ($this->registry->findEnabled() as $agent) {
             /** @var array<string, mixed> $manifest */
@@ -38,12 +40,11 @@ final class AgentInvokeBridge
                 ? json_decode((string) $agent['manifest'], true, 512, JSON_THROW_ON_ERROR)
                 : $agent['manifest'];
 
-            /** @var list<string> $capabilities */
-            $capabilities = (array) ($manifest['capabilities'] ?? []);
+            $skillIds = ManifestValidator::extractSkillIds($manifest);
 
-            if (in_array($tool, $capabilities, true)) {
+            if (in_array($tool, $skillIds, true)) {
                 $this->logger->info(
-                    'Tool resolved to enabled agent',
+                    'Skill resolved to enabled agent',
                     TraceEvent::build('core.invoke.tool_resolved', 'tool_resolve', 'core', 'completed', [
                         'target_app' => (string) $agent['name'],
                         'tool' => $tool,
@@ -52,26 +53,20 @@ final class AgentInvokeBridge
                     ]),
                 );
 
-                return $this->callAgent($agent, $manifest, $tool, $input, $traceId, $requestId);
+                return $this->callAgent($agent, $manifest, $tool, $input, $traceId, $requestId, $actor);
             }
         }
 
-        // Check if tool exists on a disabled agent
+        // Check if skill exists on a disabled agent
         foreach ($this->registry->findAll() as $agent) {
             /** @var array<string, mixed> $manifest */
             $manifest = is_string($agent['manifest'])
                 ? json_decode((string) $agent['manifest'], true, 512, JSON_THROW_ON_ERROR)
                 : $agent['manifest'];
 
-            /** @var list<string> $capabilities */
-            $capabilities = (array) ($manifest['capabilities'] ?? []);
+            $skillIds = ManifestValidator::extractSkillIds($manifest);
 
-            if (in_array($tool, $capabilities, true)) {
-                $this->logger->warning('Tool found on disabled agent', [
-                    'tool' => $tool,
-                    'agent' => (string) $agent['name'],
-                    'trace_id' => $traceId,
-                ]);
+            if (in_array($tool, $skillIds, true)) {
                 $this->logger->warning(
                     'Tool found on disabled agent',
                     TraceEvent::build('core.invoke.tool_disabled', 'tool_resolve', 'core', 'failed', [
@@ -82,13 +77,12 @@ final class AgentInvokeBridge
                         'error_code' => 'agent_disabled',
                     ]),
                 );
-                $this->auditLog($tool, (string) $agent['name'], $traceId, $requestId, 0, 'failed');
+                $this->auditLog($tool, (string) $agent['name'], $traceId, $requestId, 0, 'failed', 0, 'agent_disabled', $actor);
 
                 return ['status' => 'failed', 'reason' => 'agent_disabled'];
             }
         }
 
-        $this->logger->warning('Unknown tool requested', ['tool' => $tool, 'trace_id' => $traceId]);
         $this->logger->warning(
             'Unknown tool requested',
             TraceEvent::build('core.invoke.unknown_tool', 'tool_resolve', 'core', 'failed', [
@@ -117,16 +111,12 @@ final class AgentInvokeBridge
         array $input,
         string $traceId,
         string $requestId,
+        string $actor = 'openclaw',
     ): array {
-        $a2aEndpoint = (string) ($manifest['a2a_endpoint'] ?? '');
+        $a2aEndpoint = ManifestValidator::resolveUrl($manifest);
         $agentName = (string) $agent['name'];
 
         if ('' === $a2aEndpoint) {
-            $this->logger->warning('Agent has no A2A endpoint', [
-                'agent' => $agentName,
-                'tool' => $tool,
-                'trace_id' => $traceId,
-            ]);
             $this->logger->warning(
                 'Agent has no A2A endpoint',
                 TraceEvent::build('core.a2a.endpoint_missing', 'tool_resolve', 'core', 'failed', [
@@ -137,16 +127,10 @@ final class AgentInvokeBridge
                     'error_code' => 'no_a2a_endpoint',
                 ]),
             );
-            $this->auditLog($tool, $agentName, $traceId, $requestId, 0, 'failed');
+            $this->auditLog($tool, $agentName, $traceId, $requestId, 0, 'failed', 0, 'no_a2a_endpoint', $actor);
 
             return ['status' => 'failed', 'reason' => 'no_a2a_endpoint'];
         }
-
-        $this->logger->info('A2A call started', [
-            'agent' => $agentName,
-            'tool' => $tool,
-            'trace_id' => $traceId,
-        ]);
 
         /** @var array<string, mixed> $config */
         $config = is_string($agent['config'] ?? null)
@@ -174,6 +158,9 @@ final class AgentInvokeBridge
             'x-agent-run-id' => $agentRunId,
             'x-a2a-hop' => '1',
         ];
+        if ('' !== $this->internalToken) {
+            $headers['X-Platform-Internal-Token'] = $this->internalToken;
+        }
         $sanitizedInput = $this->payloadSanitizer->sanitize($payload);
         $sanitizedHeaders = $this->payloadSanitizer->sanitize($headers);
         $this->logger->info(
@@ -192,6 +179,8 @@ final class AgentInvokeBridge
         );
         $httpStatusCode = 0;
 
+        $errorCode = null;
+
         try {
             $response = $this->postJson($a2aEndpoint, $payload, $headers);
             $durationMs = (int) ((microtime(true) - $start) * 1000);
@@ -200,8 +189,11 @@ final class AgentInvokeBridge
             /** @var array<string, mixed> $result */
             $result = json_decode($response['body'], true, 512, JSON_THROW_ON_ERROR);
             $status = (string) ($result['status'] ?? 'unknown');
+            $taskId = isset($result['task_id']) ? (string) $result['task_id'] : null;
+            $errorCode = 'failed' === $status ? (string) ($result['reason'] ?? 'a2a_failed') : null;
             $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
-            $this->logger->info(
+            $logLevel = 'failed' === $status ? 'warning' : 'info';
+            $this->logger->$logLevel(
                 'A2A outbound completed',
                 TraceEvent::build('core.a2a.outbound.completed', 'a2a_outbound', 'core', $status, [
                     'target_app' => $agentName,
@@ -210,23 +202,19 @@ final class AgentInvokeBridge
                     'trace_id' => $traceId,
                     'request_id' => $requestId,
                     'agent_run_id' => $agentRunId,
+                    'task_id' => $taskId,
                     'duration_ms' => $durationMs,
+                    'http_status_code' => $httpStatusCode,
                     'step_output' => $sanitizedOutput['data'],
                     'capture_meta' => $sanitizedOutput['capture_meta'],
-                    'error_code' => 'failed' === $status ? (string) ($result['reason'] ?? 'a2a_failed') : null,
+                    'error_code' => $errorCode,
                 ]),
             );
         } catch (\Throwable $e) {
             $durationMs = (int) ((microtime(true) - $start) * 1000);
             $status = 'failed';
+            $errorCode = 'a2a_error';
             $result = ['status' => 'failed', 'reason' => 'a2a_error', 'error' => $e->getMessage()];
-            $this->logger->error('A2A call failed', [
-                'agent' => $agentName,
-                'tool' => $tool,
-                'duration_ms' => $durationMs,
-                'trace_id' => $traceId,
-                'exception' => $e,
-            ]);
             $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
             $this->logger->error(
                 'A2A outbound failed',
@@ -238,26 +226,16 @@ final class AgentInvokeBridge
                     'request_id' => $requestId,
                     'agent_run_id' => $agentRunId,
                     'duration_ms' => $durationMs,
+                    'http_status_code' => $httpStatusCode,
                     'step_output' => $sanitizedOutput['data'],
                     'capture_meta' => $sanitizedOutput['capture_meta'],
-                    'error_code' => 'a2a_error',
+                    'error_code' => $errorCode,
                     'exception' => $e,
                 ]),
             );
         }
 
-        if ('failed' !== $status) {
-            $this->logger->info('A2A call completed', [
-                'agent' => $agentName,
-                'tool' => $tool,
-                'status' => $status,
-                'duration_ms' => $durationMs,
-                'http_status' => $httpStatusCode,
-                'trace_id' => $traceId,
-            ]);
-        }
-
-        $this->auditLog($tool, $agentName, $traceId, $requestId, $durationMs, $status);
+        $this->auditLog($tool, $agentName, $traceId, $requestId, $durationMs, $status, $httpStatusCode, $errorCode, $actor);
         $this->langfuse->recordA2ACall(
             $traceId,
             $requestId,
@@ -285,7 +263,7 @@ final class AgentInvokeBridge
      */
     private function postJson(string $url, array $payload, array $extraHeaders = []): array
     {
-        $body = json_encode($payload, JSON_THROW_ON_ERROR);
+        $body = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         $headerLines = [
             'Content-Type: application/json',
             'Content-Length: '.strlen($body),
@@ -339,27 +317,33 @@ final class AgentInvokeBridge
     }
 
     private function auditLog(
-        string $tool,
+        string $skill,
         string $agent,
         string $traceId,
         string $requestId,
         int $durationMs,
         string $status,
+        int $httpStatusCode = 0,
+        ?string $errorCode = null,
+        string $actor = 'openclaw',
     ): void {
         $this->dbal->executeStatement(
             <<<'SQL'
-            INSERT INTO agent_invocation_audit
-                (tool, agent, trace_id, request_id, duration_ms, status, actor, created_at)
+            INSERT INTO a2a_message_audit
+                (skill, agent, trace_id, request_id, duration_ms, status, http_status_code, error_code, actor, created_at)
             VALUES
-                (:tool, :agent, :traceId, :requestId, :durationMs, :status, 'openclaw', now())
+                (:skill, :agent, :traceId, :requestId, :durationMs, :status, :httpStatusCode, :errorCode, :actor, now())
             SQL,
             [
-                'tool' => $tool,
+                'skill' => $skill,
                 'agent' => $agent,
                 'traceId' => $traceId ?: null,
                 'requestId' => $requestId ?: null,
                 'durationMs' => $durationMs,
                 'status' => $status,
+                'httpStatusCode' => $httpStatusCode > 0 ? $httpStatusCode : null,
+                'errorCode' => $errorCode,
+                'actor' => $actor,
             ],
         );
     }

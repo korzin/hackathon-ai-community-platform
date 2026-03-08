@@ -1,0 +1,9 @@
+# Example batch task file for the multi-agent pipeline
+# One task per line. Empty lines and comments (#) are ignored.
+#
+# Usage: ./scripts/pipeline-batch.sh .opencode/pipeline/tasks.example.txt
+#        make pipeline-batch FILE=.opencode/pipeline/tasks.example.txt
+
+Add streaming support to A2A gateway
+Add agent marketplace search and filtering
+Implement retry logic for LiteLLM client timeouts

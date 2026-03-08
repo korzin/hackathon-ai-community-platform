@@ -34,4 +34,11 @@ final class OpenSearchInstallStrategyTest extends Unit
 
         $this->assertTrue($strategy->isProvisioned(['collections' => []]));
     }
+
+    public function testDeprovisionReturnsEmptyActionsWhenNoCollections(): void
+    {
+        $strategy = new OpenSearchInstallStrategy('http://localhost:9200');
+
+        $this->assertSame([], $strategy->deprovision(['collections' => []], 'test-agent'));
+    }
 }

@@ -1,8 +1,12 @@
 """Crawler adapter: fetches source pages and extracts article candidates."""
 import hashlib
+import html
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from time import monotonic
+from urllib.parse import urljoin, urlparse
 
 import requests
 import trafilatura
@@ -15,6 +19,16 @@ logger = logging.getLogger(__name__)
 
 CRAWL_TIMEOUT = 20
 USER_AGENT = "Mozilla/5.0 (compatible; AICommunityBot/1.0)"
+HREF_PATTERN = re.compile(r"""href=["']([^"']+)["']""", re.IGNORECASE)
+MAX_LINKS_PER_SOURCE = settings.crawl_max_links_per_source
+SOURCE_TIMEBOX_SECONDS = settings.crawl_source_timebox_seconds
+RUN_TIMEBOX_SECONDS = settings.crawl_run_timebox_seconds
+STATIC_EXTENSIONS = {
+    ".css", ".js", ".mjs", ".map", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".gz", ".mp4", ".mp3", ".json",
+}
+STATIC_PATH_MARKERS = ("/assets/", "/static/", "/images/", "/img/", "/css/", "/js/", "/fonts/")
+BLOCKED_HOST_MARKERS = ("redditstatic.com", "gstatic.com", "doubleclick.net", "googletagmanager.com")
 
 
 def _fetch_html(url: str, proxy_url: str | None = None) -> str | None:
@@ -27,23 +41,71 @@ def _fetch_html(url: str, proxy_url: str | None = None) -> str | None:
             proxies=proxies,
         )
         resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "").lower()
+        if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+            logger.debug("Skipping non-HTML response for %s (content_type=%s)", url, content_type or "unknown")
+            return None
+        logger.debug("Fetched URL %s (status=%s, bytes=%d)", url, resp.status_code, len(resp.text))
         return resp.text
     except Exception as exc:
         logger.warning("Failed to fetch %s: %s", url, exc)
         return None
 
 
+def _normalized_host(url: str) -> str:
+    host = urlparse(url).netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _is_same_site_or_subdomain(link: str, base_url: str) -> bool:
+    link_host = _normalized_host(link)
+    base_host = _normalized_host(base_url)
+    return link_host == base_host or link_host.endswith(f".{base_host}")
+
+
+def _reject_reason(link: str, base_url: str) -> str | None:
+    parsed = urlparse(link)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+
+    if not _is_same_site_or_subdomain(link, base_url):
+        return "offsite"
+
+    if any(marker in host for marker in BLOCKED_HOST_MARKERS):
+        return "blocked_host"
+
+    if any(path.endswith(ext) for ext in STATIC_EXTENSIONS):
+        return "static_extension"
+
+    if any(marker in path for marker in STATIC_PATH_MARKERS):
+        return "static_path"
+
+    if "reddit.com" in host and "/comments/" not in path:
+        return "reddit_non_post"
+
+    if path in ("", "/"):
+        return "homepage"
+
+    return None
+
+
 def _extract_article(html: str, url: str) -> dict | None:
     """Use trafilatura to extract article content from HTML."""
-    result = trafilatura.extract(
+    extracted = trafilatura.bare_extraction(
         html,
         url=url,
         include_links=False,
         include_images=False,
-        output_format="python",
         with_metadata=True,
     )
-    if not result:
+    if not extracted:
+        return None
+
+    if isinstance(extracted, dict):
+        result = extracted
+    elif hasattr(extracted, "as_dict"):
+        result = extracted.as_dict()
+    else:
         return None
 
     text = result.get("text", "") or ""
@@ -65,7 +127,7 @@ def _dedup_hash(url: str) -> str:
     return hashlib.sha256(url.encode()).hexdigest()
 
 
-def run_crawl() -> None:
+def run_crawl() -> int:
     """Main crawl job: fetch all enabled sources and store raw items."""
     db = SessionLocal()
     run = SchedulerRun(job_name="crawl")
@@ -73,38 +135,106 @@ def run_crawl() -> None:
     db.commit()
 
     try:
+        existing_run = (
+            db.query(SchedulerRun)
+            .filter(
+                SchedulerRun.job_name == "crawl",
+                SchedulerRun.status == "running",
+                SchedulerRun.finished_at.is_(None),
+                SchedulerRun.id != run.id,
+            )
+            .first()
+        )
+        if existing_run:
+            logger.warning(
+                "Skipping crawl run %s: another crawl run is already running (id=%s, started_at=%s)",
+                run.id,
+                existing_run.id,
+                existing_run.started_at,
+            )
+            run.status = "failed"
+            run.error_message = "Another crawl run is already in progress"
+            run.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            return 0
+
         settings_row = db.query(AgentSettings).first()
         proxy_url = settings_row.proxy_url if settings_row and settings_row.proxy_enabled else None
         ttl_hours = settings_row.raw_item_ttl_hours if settings_row else 72
         expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+        run_deadline = monotonic() + RUN_TIMEBOX_SECONDS
 
-        sources = db.query(NewsSource).filter(NewsSource.enabled == True).order_by(NewsSource.crawl_priority.desc()).all()  # noqa: E712
+        sources = (
+            db.query(NewsSource)
+            .filter(NewsSource.enabled == True)  # noqa: E712
+            .order_by(NewsSource.crawl_priority.desc())
+            .all()
+        )
+        logger.info(
+            "Crawl run started: enabled_sources=%d ttl_hours=%d max_links_per_source=%d source_timebox=%ds run_timebox=%ds",
+            len(sources),
+            ttl_hours,
+            MAX_LINKS_PER_SOURCE,
+            SOURCE_TIMEBOX_SECONDS,
+            RUN_TIMEBOX_SECONDS,
+        )
 
         items_seen = 0
         crawl_run_id = uuid.uuid4()
 
         for source in sources:
+            if monotonic() > run_deadline:
+                logger.warning("Stopping crawl early: run timebox (%ds) exceeded", RUN_TIMEBOX_SECONDS)
+                break
+
+            logger.info("Crawling source '%s' (%s)", source.name, source.base_url)
             html = _fetch_html(source.base_url, proxy_url)
             if not html:
                 source.last_error_at = datetime.now(timezone.utc)
                 db.commit()
+                logger.warning("Source '%s' fetch failed", source.name)
                 continue
 
             # Extract links from the source page
-            links = _extract_links(html, source.base_url)
+            links, link_stats = _extract_links(html, source.base_url, with_stats=True)
+            logger.info(
+                "Source '%s' produced %d candidate links (href=%d accepted=%d filtered=%d offsite=%d static=%d blocked=%d duplicate=%d invalid=%d)",
+                source.name,
+                len(links),
+                link_stats["href_total"],
+                link_stats["accepted"],
+                link_stats["filtered"],
+                link_stats["offsite"],
+                link_stats["static"],
+                link_stats["blocked"],
+                link_stats["duplicate"],
+                link_stats["invalid"],
+            )
+            source_added = 0
+            source_existing = 0
+            source_fetch_failed = 0
+            source_extract_failed = 0
+            source_deadline = monotonic() + SOURCE_TIMEBOX_SECONDS
 
-            for link in links[:20]:  # cap per source
+            for link in links:
+                if monotonic() > source_deadline:
+                    logger.warning("Source '%s' stopped by source timebox (%ds)", source.name, SOURCE_TIMEBOX_SECONDS)
+                    break
+
                 dedup = _dedup_hash(link)
                 exists = db.query(RawNewsItem).filter(RawNewsItem.dedup_hash == dedup).first()
                 if exists:
+                    source_existing += 1
                     continue
 
                 article_html = _fetch_html(link, proxy_url)
                 if not article_html:
+                    source_fetch_failed += 1
                     continue
 
                 article = _extract_article(article_html, link)
                 if not article:
+                    source_extract_failed += 1
                     continue
 
                 item = RawNewsItem(
@@ -123,15 +253,25 @@ def run_crawl() -> None:
                 )
                 db.add(item)
                 items_seen += 1
+                source_added += 1
 
             source.last_success_at = datetime.now(timezone.utc)
             db.commit()
+            logger.info(
+                "Source '%s' done: added=%d existing=%d fetch_failed=%d extract_failed=%d",
+                source.name,
+                source_added,
+                source_existing,
+                source_fetch_failed,
+                source_extract_failed,
+            )
 
         run.items_seen = items_seen
         run.status = "completed"
         run.finished_at = datetime.now(timezone.utc)
         db.commit()
         logger.info("Crawl run complete: %d items seen", items_seen)
+        return items_seen
 
     except Exception as exc:
         logger.exception("Crawl run failed")
@@ -139,22 +279,105 @@ def run_crawl() -> None:
         run.error_message = str(exc)
         run.finished_at = datetime.now(timezone.utc)
         db.commit()
+        return 0
     finally:
         db.close()
 
 
-def _extract_links(html: str, base_url: str) -> list[str]:
-    """Extract article links from a source page using trafilatura."""
+def _extract_links(
+    html: str,
+    base_url: str,
+    *,
+    with_stats: bool = False,
+) -> list[str] | tuple[list[str], dict[str, int]]:
+    """Extract article-like links from a source page."""
+    links_from_html, stats = _extract_links_from_html(html, base_url)
+    if links_from_html:
+        result = links_from_html[:MAX_LINKS_PER_SOURCE]
+        stats["accepted"] = len(result)
+        return (result, stats) if with_stats else result
+
     try:
         from trafilatura.spider import focused_crawler
-        # Use trafilatura's focused_crawler for link extraction
+
         _, links = focused_crawler(base_url, max_seen_urls=30, max_known_urls=50)
-        return list(links)[:20]
+        filtered = []
+        for link in list(links):
+            reason = _reject_reason(link, base_url)
+            if reason:
+                stats["filtered"] += 1
+                if reason == "offsite":
+                    stats["offsite"] += 1
+                elif reason in ("static_extension", "static_path"):
+                    stats["static"] += 1
+                elif reason in ("blocked_host", "reddit_non_post"):
+                    stats["blocked"] += 1
+                continue
+            filtered.append(link)
+
+        result = filtered[:MAX_LINKS_PER_SOURCE]
+        stats["accepted"] = len(result)
+        return (result, stats) if with_stats else result
     except Exception:
-        return []
+        return ([], stats) if with_stats else []
 
 
-def run_cleanup() -> None:
+def _extract_links_from_html(page_html: str, base_url: str) -> tuple[list[str], dict[str, int]]:
+    links: list[str] = []
+    seen: set[str] = set()
+    stats = {
+        "href_total": 0,
+        "accepted": 0,
+        "filtered": 0,
+        "offsite": 0,
+        "static": 0,
+        "blocked": 0,
+        "duplicate": 0,
+        "invalid": 0,
+    }
+
+    for match in HREF_PATTERN.finditer(page_html):
+        stats["href_total"] += 1
+        href = html.unescape(match.group(1).strip())
+        if (
+            not href
+            or href.startswith("#")
+            or href.startswith("javascript:")
+            or href.startswith("mailto:")
+            or href.startswith("tel:")
+        ):
+            stats["invalid"] += 1
+            continue
+
+        absolute = urljoin(base_url, href).split("#", 1)[0]
+        parsed = urlparse(absolute)
+        if parsed.scheme not in ("http", "https"):
+            stats["invalid"] += 1
+            continue
+
+        if absolute in seen:
+            stats["duplicate"] += 1
+            continue
+        seen.add(absolute)
+
+        reason = _reject_reason(absolute, base_url)
+        if reason:
+            stats["filtered"] += 1
+            if reason == "offsite":
+                stats["offsite"] += 1
+            elif reason in ("static_extension", "static_path"):
+                stats["static"] += 1
+            elif reason in ("blocked_host", "reddit_non_post"):
+                stats["blocked"] += 1
+            continue
+
+        links.append(absolute)
+        stats["accepted"] += 1
+
+    return links, stats
+
+
+def run_cleanup() -> int:
     """Remove expired raw items."""
     db = SessionLocal()
     run = SchedulerRun(job_name="cleanup")
@@ -175,6 +398,7 @@ def run_cleanup() -> None:
         run.finished_at = datetime.now(timezone.utc)
         db.commit()
         logger.info("Cleanup run complete: %d items removed", deleted)
+        return deleted
 
     except Exception as exc:
         logger.exception("Cleanup run failed")
@@ -182,5 +406,6 @@ def run_cleanup() -> None:
         run.error_message = str(exc)
         run.finished_at = datetime.now(timezone.utc)
         db.commit()
+        return 0
     finally:
         db.close()

@@ -87,6 +87,47 @@ final class AgentInstallerServiceTest extends Unit
         $this->assertContains('created_database:db_only', $actions);
     }
 
+    public function testUninstallWithAllStorageTypes(): void
+    {
+        $manifest = [
+            'name' => 'test-agent',
+            'storage' => [
+                'postgres' => ['db_name' => 'test', 'user' => 'test', 'password' => 'test'],
+                'redis' => ['db_number' => 1],
+                'opensearch' => ['collections' => ['chunks']],
+            ],
+        ];
+
+        $this->opensearch->expects($this->once())
+            ->method('deprovision')
+            ->willReturn(['deleted_index:test_agent_chunks']);
+
+        $this->redis->expects($this->once())
+            ->method('deprovision')
+            ->willReturn(['cleared_redis_db:1']);
+
+        $this->postgres->expects($this->once())
+            ->method('deprovision')
+            ->willReturn(['dropped_database:test', 'dropped_user:test']);
+
+        $actions = $this->service->uninstall($manifest);
+
+        $this->assertCount(4, $actions);
+    }
+
+    public function testUninstallWithNoStorageSection(): void
+    {
+        $manifest = ['name' => 'stateless-agent'];
+
+        $this->postgres->expects($this->never())->method('deprovision');
+        $this->redis->expects($this->never())->method('deprovision');
+        $this->opensearch->expects($this->never())->method('deprovision');
+
+        $actions = $this->service->uninstall($manifest);
+
+        $this->assertSame([], $actions);
+    }
+
     public function testInstallPropagatesException(): void
     {
         $manifest = [
@@ -104,5 +145,24 @@ final class AgentInstallerServiceTest extends Unit
         $this->expectExceptionMessage('Provision failed');
 
         $this->service->install($manifest);
+    }
+
+    public function testUninstallPropagatesException(): void
+    {
+        $manifest = [
+            'name' => 'failing-agent',
+            'storage' => [
+                'postgres' => ['db_name' => 'fail', 'user' => 'fail', 'password' => 'fail'],
+            ],
+        ];
+
+        $this->postgres->expects($this->once())
+            ->method('deprovision')
+            ->willThrowException(new AgentInstallException('Deprovision failed'));
+
+        $this->expectException(AgentInstallException::class);
+        $this->expectExceptionMessage('Deprovision failed');
+
+        $this->service->uninstall($manifest);
     }
 }

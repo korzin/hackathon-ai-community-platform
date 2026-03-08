@@ -1,0 +1,43 @@
+parameters:
+    app.opensearch_url: '%env(OPENSEARCH_URL)%'
+    app.log_app_name: 'dev-reporter-agent'
+    app.internal_token: '%env(APP_INTERNAL_TOKEN)%'
+    app.admin_public_url: '%env(ADMIN_PUBLIC_URL)%'
+    app.platform_core_url: '%env(PLATFORM_CORE_URL)%'
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Kernel.php'
+
+    App\A2A\DevReporterA2AHandler:
+        arguments:
+            $platformCoreUrl: '%app.platform_core_url%'
+
+    App\Controller\Admin\PipelineAdminController:
+        arguments:
+            $adminPublicUrl: '%app.admin_public_url%'
+
+    App\Controller\Api\A2AController:
+        arguments:
+            $internalToken: '%app.internal_token%'
+
+    App\Controller\Api\ManifestController:
+        arguments:
+            $adminPublicUrl: '%app.admin_public_url%'
+
+    App\Logging\OpenSearchHandler:
+        arguments:
+            $opensearchUrl: '%app.opensearch_url%'
+
+    App\Logging\OpenSearchProcessor:
+        arguments:
+            $appName: '%app.log_app_name%'
+        tags:
+            - { name: monolog.processor }

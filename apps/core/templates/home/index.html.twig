@@ -1,0 +1,163 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}AI Community Platform{% endblock %}
+
+{% block body %}
+<style>
+  :root {
+    --bg: #081521;
+    --bg-soft: #112538;
+    --text: #e8f1fb;
+    --muted: #9bb3c8;
+    --accent: #26d0ce;
+    --accent-2: #1a75ff;
+    --border: rgba(255, 255, 255, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Manrope", "Segoe UI", sans-serif;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(38, 208, 206, 0.22), transparent 40%),
+      radial-gradient(circle at 85% 10%, rgba(26, 117, 255, 0.2), transparent 38%),
+      linear-gradient(135deg, var(--bg) 0%, #0b1d2d 55%, #0d2233 100%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 56px 24px 72px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    background: rgba(6, 18, 31, .5);
+  }
+
+  h1 {
+    margin: 18px 0 12px;
+    font-size: clamp(32px, 7vw, 56px);
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+  }
+
+  .subtitle {
+    max-width: 720px;
+    font-size: clamp(16px, 2.6vw, 21px);
+    color: var(--muted);
+    line-height: 1.55;
+    margin: 0 0 34px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+
+  .card {
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+    border-radius: 14px;
+    padding: 18px;
+  }
+
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    color: #cde0f3;
+    letter-spacing: .02em;
+  }
+
+  .card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-decoration: none;
+    border-radius: 10px;
+    padding: 11px 16px;
+    font-weight: 700;
+    font-size: 14px;
+    border: 1px solid transparent;
+    transition: transform .14s ease, box-shadow .14s ease;
+  }
+
+  .btn:hover { transform: translateY(-1px); }
+
+  .btn-primary {
+    color: #04101b;
+    background: linear-gradient(90deg, var(--accent), #66e6e4);
+    box-shadow: 0 10px 26px rgba(38, 208, 206, .25);
+  }
+
+  .btn-secondary {
+    color: var(--text);
+    border-color: var(--border);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .footer {
+    color: #84a0b9;
+    font-size: 13px;
+  }
+</style>
+
+<main class="wrap">
+  <span class="tag">Demo Environment</span>
+  <h1>AI Community Platform</h1>
+  <p class="subtitle">
+    Unified workspace for AI agents, orchestration workflows, and observability.
+    This environment is configured for hackathon demos and rapid iteration
+  </p>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Agent Workspace</h2>
+      <p>Coordinate multiple specialized agents and route tasks through a single platform.</p>
+    </article>
+    <article class="card">
+      <h2>Shared Knowledge</h2>
+      <p>Connect knowledge pipelines and OpenSearch-backed retrieval in one stack.</p>
+    </article>
+    <article class="card">
+      <h2>Live Observability</h2>
+      <p>Monitor health, logs, and execution traces during demos and testing sessions.</p>
+    </article>
+  </section>
+
+  <div class="actions">
+    <a class="btn btn-primary" href="/admin">Open Admin</a>
+    <a class="btn btn-secondary" href="/health">Platform Health</a>
+  </div>
+
+  <p class="footer">If you are seeing this page, the gateway and core service are up.</p>
+</main>
+{% endblock %}

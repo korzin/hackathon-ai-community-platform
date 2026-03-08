@@ -65,6 +65,8 @@ final class TracingHttpClient implements HttpClientInterface
 
         $featureName = $this->detectFeatureName($request);
         $traceId = $this->traceContext->getTraceId();
+        $effectiveTraceId = '' !== $traceId ? $traceId : $requestId;
+        $sessionId = $effectiveTraceId;
         $headers = [
             'X-Request-Id' => $requestId,
             'X-Service-Name' => $this->serviceName,
@@ -81,7 +83,7 @@ final class TracingHttpClient implements HttpClientInterface
 
         if (\is_array($body)) {
             if (!isset($body['user'])) {
-                $body['user'] = sprintf(
+                $body['user'] = \sprintf(
                     'service=%s;feature=%s;request_id=%s',
                     $this->serviceName,
                     $featureName,
@@ -89,18 +91,35 @@ final class TracingHttpClient implements HttpClientInterface
                 );
             }
 
-            $metadata = [];
-            if (isset($body['metadata']) && \is_array($body['metadata'])) {
-                $metadata = $body['metadata'];
-            }
+            $userTag = $body['user'] ?? \sprintf(
+                'service=%s;feature=%s;request_id=%s',
+                $this->serviceName,
+                $featureName,
+                $requestId,
+            );
 
             $body['metadata'] = [
-                ...$metadata,
                 'request_id' => $requestId,
-                'service_name' => $this->serviceName,
-                'agent_name' => $this->serviceName,
-                'feature_name' => $featureName,
-                'trace_id' => $traceId,
+                'trace_id' => $effectiveTraceId,
+                'trace_name' => $this->serviceName.'.'.$featureName,
+                'session_id' => $sessionId,
+                'generation_name' => $featureName,
+                'tags' => [
+                    'agent:'.$this->serviceName,
+                    'method:'.$featureName,
+                ],
+                'trace_user_id' => $userTag,
+                'trace_metadata' => [
+                    'request_id' => $requestId,
+                    'session_id' => $sessionId,
+                    'agent_name' => $this->serviceName,
+                    'feature_name' => $featureName,
+                ],
+            ];
+
+            $body['tags'] = [
+                'agent:'.$this->serviceName,
+                'method:'.$featureName,
             ];
         }
 

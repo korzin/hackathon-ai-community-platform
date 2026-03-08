@@ -33,16 +33,21 @@ Checks for agents built with PHP 8.5 + Symfony 7.
 | T-09 | Makefile has analyse target | Grep Makefile for `<agent>-analyse` or `analyse:` | Found | — | Missing |
 | T-10 | Makefile has cs-check target | Grep Makefile for `<agent>-cs-check` or `cs-check:` | Found | — | Missing |
 
-## C: Configuration (agents only — skip for core)
+## C: Configuration & Agent Card (agents only — skip for core)
 
 | ID | Check | How to Verify | PASS | WARN | FAIL |
 |----|-------|---------------|------|------|------|
 | C-01 | Manifest controller exists | Grep src/ for `'/api/v1/manifest'` | Found | — | Missing |
-| C-02 | Manifest returns required fields | Read ManifestController, check for `name`, `version`, `capabilities` | All present | Missing optional | Missing required |
-| C-03 | Compose label `ai.platform.agent=true` | Grep compose.yaml | Found | — | Missing |
-| C-04 | `config/reference.php` exists | Glob | Exists | — | Missing |
-| C-05 | Environment variables documented | `.env` or `.env.dev` exists with content | Exists | Empty | Missing |
-| C-06 | `services.yaml` exists | Glob `apps/<agent>/config/services.yaml` | Exists | — | Missing |
+| C-02 | Agent Card has required fields | Read ManifestController, check for `name`, `version` | Both present | — | Missing required |
+| C-03 | Agent Card has `url` field | Check manifest response for `url` (valid URL) | Present | Only deprecated `a2a_endpoint` | Neither |
+| C-04 | Agent Card has structured skills | Check `skills` array contains AgentSkill objects `{id, name, description}` | Structured objects | Legacy string array | No skills |
+| C-05 | Agent Card has `capabilities` | Check for `capabilities` object `{streaming, pushNotifications}` | Present | — | Missing |
+| C-06 | Agent Card has `provider` | Check for `provider` object `{organization, url}` | Present | — | Missing |
+| C-07 | Agent Card has I/O modes | Check for `defaultInputModes`, `defaultOutputModes` arrays | Both present | One only | Neither |
+| C-08 | Compose label `ai.platform.agent=true` | Grep compose.yaml | Found | — | Missing |
+| C-09 | `config/reference.php` exists | Glob | Exists | — | Missing |
+| C-10 | Environment variables documented | `.env` or `.env.dev` exists with content | Exists | Empty | Missing |
+| C-11 | `services.yaml` exists | Glob `apps/<agent>/config/services.yaml` | Exists | — | Missing |
 
 ## X: Security
 
@@ -71,6 +76,8 @@ Checks for agents built with PHP 8.5 + Symfony 7.
 | O-10 | Error/warning paths include context | Grep src/ for `->warning(` and `->error(` calls; check they include relevant identifiers (agent, tool, trace_id) not just a bare string | All have context | Some bare | Majority bare |
 | O-11 | LLM calls log duration and model | If agent calls external LLM, grep for `duration_ms` and `model` near LLM call code | Both logged | One of two | Neither |
 | O-12 | Monolog config with OpenSearch handler | Glob `apps/<agent>/config/packages/monolog.yaml`, check for opensearch handler | Configured | — | Missing |
+| O-13 | LLM calls include `tags` field | If agent calls LLM, grep src/ for `'tags'` near LLM call code; must contain `agent:<name>` and `method:<feature>` (both top-level `tags` and inside `metadata.tags`) | Both tags present | Partial | No tags |
+| O-14 | LLM metadata is Langfuse-compatible | If agent calls LLM, grep src/ for `'metadata'` near LLM call code; must contain `trace_id`, `trace_name`, `session_id`, `generation_name`, `tags`, `trace_user_id`, `trace_metadata` (see `docs/features/litellm-requests/tracing-contract.md`) | All required fields | Has trace_id but missing others | No metadata |
 
 ## D: Documentation
 
@@ -100,3 +107,4 @@ Checks for agents built with PHP 8.5 + Symfony 7.
 | Q-02 | Namespace follows `App\` | Grep src/ for namespace declarations | All `App\` | — | Non-standard |
 | Q-03 | Controllers use route attributes | Grep for `#[Route(` in Controller files | Found | — | Missing |
 | Q-04 | `.editorconfig` exists | Glob root or app dir | Exists | — | Missing |
+| Q-05 | No direct agent-to-agent calls | Grep `src/` for hardcoded URLs to other agent service names (e.g. `http://knowledge-agent`, `http://news-maker-agent`). All inter-agent communication must go via `PLATFORM_CORE_URL` through the A2A gateway. | No matches | — | Direct agent URL found |

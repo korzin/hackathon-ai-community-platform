@@ -57,4 +57,8 @@ interface AgentRegistryInterface
     public function findByName(string $name): ?array;
 
     public function markInstalled(string $name): bool;
+
+    public function markUninstalled(string $name): bool;
+
+    public function delete(string $name): bool;
 }

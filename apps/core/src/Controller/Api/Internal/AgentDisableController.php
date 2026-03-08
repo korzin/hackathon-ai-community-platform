@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api\Internal;
 
-use App\AgentDiscovery\OpenClawSyncService;
+use App\A2AGateway\SkillCatalogSyncService;
 use App\AgentRegistry\AgentRegistryAuditLogger;
 use App\AgentRegistry\AgentRegistryRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -19,7 +19,7 @@ final class AgentDisableController extends AbstractController
     public function __construct(
         private readonly AgentRegistryRepository $registry,
         private readonly AgentRegistryAuditLogger $audit,
-        private readonly OpenClawSyncService $syncService,
+        private readonly SkillCatalogSyncService $syncService,
     ) {
     }
 

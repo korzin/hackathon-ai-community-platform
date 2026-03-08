@@ -35,6 +35,33 @@ final class RedisInstallStrategy implements InstallStrategyInterface
         return [sprintf('verified_redis_db:%d', $dbNumber)];
     }
 
+    public function deprovision(array $storageConfig, string $agentName): array
+    {
+        $dbNumber = $storageConfig['db_number'] ?? null;
+
+        if (!is_int($dbNumber) || $dbNumber < 0 || $dbNumber > 15) {
+            throw new AgentInstallException(sprintf('Invalid Redis db_number: %s', var_export($dbNumber, true)));
+        }
+
+        $redis = $this->createRedisConnection();
+
+        try {
+            $selected = $redis->select($dbNumber);
+            if (false === $selected) {
+                throw new AgentInstallException(sprintf('Redis SELECT %d failed', $dbNumber));
+            }
+
+            $flushed = $redis->flushDB();
+            if (false === $flushed) {
+                throw new AgentInstallException(sprintf('Redis FLUSHDB %d failed', $dbNumber));
+            }
+        } finally {
+            $redis->close();
+        }
+
+        return [sprintf('cleared_redis_db:%d', $dbNumber)];
+    }
+
     public function isProvisioned(array $storageConfig): bool
     {
         $dbNumber = $storageConfig['db_number'] ?? null;

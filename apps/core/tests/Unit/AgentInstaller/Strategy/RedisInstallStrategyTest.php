@@ -35,4 +35,13 @@ final class RedisInstallStrategyTest extends Unit
 
         $strategy->provision(['db_number' => 16], 'test-agent');
     }
+
+    public function testDeprovisionThrowsOnInvalidDbNumber(): void
+    {
+        $strategy = new RedisInstallStrategy('redis://localhost:6379');
+
+        $this->expectException(AgentInstallException::class);
+
+        $strategy->deprovision(['db_number' => 16], 'test-agent');
+    }
 }

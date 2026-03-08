@@ -3,6 +3,12 @@
 {% block title %}Джерела — News Maker Admin{% endblock %}
 
 {% block content %}
+{% if error %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    {{ error }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрити"></button>
+</div>
+{% endif %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="h3">Джерела новин</h1>
     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">

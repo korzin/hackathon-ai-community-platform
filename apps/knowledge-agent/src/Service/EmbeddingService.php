@@ -32,6 +32,8 @@ final class EmbeddingService
 
         $featureName = $this->resolveFeatureName();
         $traceId = $this->traceContext->getTraceId();
+        $effectiveTraceId = '' !== $traceId ? $traceId : $requestId;
+        $sessionId = $effectiveTraceId;
         $headers = [
             'Authorization' => 'Bearer '.$this->litellmApiKey,
             'Content-Type' => 'application/json',
@@ -44,7 +46,7 @@ final class EmbeddingService
             $headers['X-Trace-Id'] = $traceId;
         }
 
-        $userTag = sprintf(
+        $userTag = \sprintf(
             'service=%s;feature=%s;request_id=%s',
             self::SERVICE_NAME,
             $featureName,
@@ -57,6 +59,28 @@ final class EmbeddingService
                 'model' => $this->embeddingModel,
                 'input' => $text,
                 'user' => $userTag,
+                'metadata' => [
+                    'request_id' => $requestId,
+                    'trace_id' => $effectiveTraceId,
+                    'trace_name' => self::SERVICE_NAME.'.'.$featureName,
+                    'session_id' => $sessionId,
+                    'generation_name' => $featureName,
+                    'tags' => [
+                        'agent:'.self::SERVICE_NAME,
+                        'method:'.$featureName,
+                    ],
+                    'trace_user_id' => $userTag,
+                    'trace_metadata' => [
+                        'request_id' => $requestId,
+                        'session_id' => $sessionId,
+                        'agent_name' => self::SERVICE_NAME,
+                        'feature_name' => $featureName,
+                    ],
+                ],
+                'tags' => [
+                    'agent:'.self::SERVICE_NAME,
+                    'method:'.$featureName,
+                ],
             ],
         ]);
 
@@ -79,9 +103,9 @@ final class EmbeddingService
             $shortClass = str_contains($class, '\\')
                 ? substr($class, (int) strrpos($class, '\\') + 1)
                 : $class;
-            $method = (string) ($frame['function'] ?? 'call');
+            $method = $frame['function'];
 
-            return strtolower(sprintf('embedding.%s.%s', $shortClass, $method));
+            return strtolower(\sprintf('embedding.%s.%s', $shortClass, $method));
         }
 
         return 'embedding.unknown';

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Адмін — Pipeline Runs</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-card: rgba(30,41,59,.7);
+            --bg-card-solid: #1e293b;
+            --bg-card-border: rgba(148,163,184,.15);
+            --bg-input: rgba(15,23,42,.6);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --success-bg: rgba(34,197,94,.15);
+            --danger: #ef4444;
+            --danger-bg: rgba(239,68,68,.15);
+            --warning: #eab308;
+            --radius: 8px;
+            --radius-sm: 4px;
+            --transition: .2s ease;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; color: var(--text-primary); background: var(--bg-primary); line-height: 1.5; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .page-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--bg-card-border); display: flex; align-items: center; justify-content: space-between; }
+        .page-header h1 { margin: 0; font-size: 1.1rem; }
+
+        .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; padding: 1rem 1.5rem; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--bg-card-border); border-radius: var(--radius); padding: .75rem 1rem; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; }
+        .stat-label { color: var(--text-muted); font-size: .8rem; margin-top: .2rem; }
+
+        .filters { padding: .75rem 1.5rem; display: flex; gap: .5rem; align-items: center; }
+        .filter-btn { background: var(--bg-card); border: 1px solid var(--bg-card-border); border-radius: var(--radius-sm); color: var(--text-secondary); padding: .35rem .75rem; cursor: pointer; font-size: .85rem; text-decoration: none; transition: all var(--transition); }
+        .filter-btn:hover { color: var(--text-primary); border-color: var(--accent); text-decoration: none; }
+        .filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+        .card { background: var(--bg-card); border: 1px solid var(--bg-card-border); border-radius: var(--radius); margin: 0 1.5rem 1.5rem; backdrop-filter: blur(12px); }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: .5rem .75rem; font-size: .8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--bg-card-border); }
+        td { padding: .6rem .75rem; border-bottom: 1px solid var(--bg-card-border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(148,163,184,.05); }
+
+        .badge { display: inline-block; padding: .2rem .5rem; border-radius: var(--radius-sm); font-size: .75rem; font-weight: 600; }
+        .badge-success { background: var(--success-bg); color: var(--success); }
+        .badge-danger { background: var(--danger-bg); color: var(--danger); }
+
+        .text-muted { color: var(--text-muted); }
+        .text-sm { font-size: .85rem; }
+
+        @media (max-width: 768px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <h1>🔭 Dev Reporter — Pipeline Runs</h1>
+        <span class="text-muted text-sm">Last 7 days stats shown above</span>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-label">Total runs</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--success);">{{ stats.passed }}</div>
+            <div class="stat-label">Passed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--danger);">{{ stats.failed }}</div>
+            <div class="stat-label">Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.pass_rate }}%</div>
+            <div class="stat-label">Pass rate</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ (stats.avg_duration / 60)|round }}m</div>
+            <div class="stat-label">Avg duration</div>
+        </div>
+    </div>
+
+    <div class="filters">
+        <span class="text-muted text-sm" style="margin-right:.25rem;">Filter:</span>
+        <a href="/admin/pipeline" class="filter-btn {{ status_filter is null ? 'active' : '' }}">All</a>
+        <a href="/admin/pipeline?status=completed" class="filter-btn {{ status_filter == 'completed' ? 'active' : '' }}">Passed</a>
+        <a href="/admin/pipeline?status=failed" class="filter-btn {{ status_filter == 'failed' ? 'active' : '' }}">Failed</a>
+    </div>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Task</th>
+                    <th>Branch</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Agents</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                    <tr>
+                        <td class="text-sm text-muted">{{ run.created_at|date('Y-m-d H:i') }}</td>
+                        <td>
+                            {{ run.task|slice(0, 60) }}{% if run.task|length > 60 %}…{% endif %}
+                            {% if run.failed_agent %}
+                                <br><span class="text-sm" style="color: var(--danger);">Failed at: {{ run.failed_agent }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-sm text-muted">{{ run.branch|slice(0, 40) }}</td>
+                        <td>
+                            {% if run.status == 'completed' %}
+                                <span class="badge badge-success">✓ passed</span>
+                            {% else %}
+                                <span class="badge badge-danger">✗ failed</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-sm">{{ (run.duration_seconds / 60)|round }}m</td>
+                        <td class="text-sm text-muted">
+                            {% if run.agent_results_count > 0 %}
+                                {{ run.agent_results_count }} agents
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="6" style="text-align:center; color: var(--text-muted); padding: 2rem;">
+                            No pipeline runs found
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

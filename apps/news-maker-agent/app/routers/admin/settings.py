@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -9,6 +10,7 @@ from app.models.models import AgentSettings, SchedulerRun
 from app.templates_config import templates
 
 router = APIRouter(tags=["admin-settings"])
+logger = logging.getLogger(__name__)
 
 
 def _get_or_create_settings(db: Session) -> AgentSettings:
@@ -62,12 +64,16 @@ def update_settings(
 @router.post("/admin/trigger/crawl")
 def trigger_crawl():
     from app.services.scheduler import trigger_crawl_now
-    trigger_crawl_now()
+    logger.info("Received manual crawl trigger from admin")
+    accepted = trigger_crawl_now()
+    if not accepted:
+        logger.warning("Manual crawl trigger skipped: crawl pipeline is already running")
     return RedirectResponse("/admin/settings", status_code=303)
 
 
 @router.post("/admin/trigger/cleanup")
 def trigger_cleanup():
     from app.services.scheduler import trigger_cleanup_now
+    logger.info("Received manual cleanup trigger from admin")
     trigger_cleanup_now()
     return RedirectResponse("/admin/settings", status_code=303)

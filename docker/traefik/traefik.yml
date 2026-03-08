@@ -17,6 +17,8 @@ entryPoints:
     address: ":8085"
   langfuse:
     address: ":8086"
+  dev-reporter:
+    address: ":8087"
 
 providers:
   docker:
