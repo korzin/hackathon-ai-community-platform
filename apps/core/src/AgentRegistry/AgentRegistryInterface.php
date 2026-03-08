@@ -58,5 +58,7 @@ interface AgentRegistryInterface
 
     public function markInstalled(string $name): bool;
 
+    public function markUninstalled(string $name): bool;
+
     public function delete(string $name): bool;
 }

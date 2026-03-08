@@ -17,7 +17,7 @@ final class ManifestValidator
     private const COLLECTION_PATTERN = '/^[a-z][a-z0-9_-]*$/';
 
     /**
-     * Normalize a manifest to the official A2A AgentCard structure.
+     * Normalize Agent Card payload to the official A2A AgentCard structure.
      *
      * - Copies `a2a_endpoint` to `url` if `url` is absent
      * - Converts string skills to structured AgentSkill objects using `skill_schemas` data
@@ -59,7 +59,7 @@ final class ManifestValidator
     }
 
     /**
-     * Extract skill IDs from a manifest's skills array (handles both string and structured formats).
+     * Extract skill IDs from an Agent Card skills array (handles both string and structured formats).
      *
      * @param array<string, mixed> $manifest
      *
@@ -82,7 +82,7 @@ final class ManifestValidator
     }
 
     /**
-     * Resolve the A2A endpoint URL from a manifest (prefers `url`, falls back to `a2a_endpoint`).
+     * Resolve the A2A endpoint URL from an Agent Card (prefers `url`, falls back to `a2a_endpoint`).
      *
      * @param array<string, mixed> $manifest
      */
@@ -351,6 +351,14 @@ final class ManifestValidator
         foreach (['db_name', 'user'] as $field) {
             if (!preg_match(self::IDENTIFIER_PATTERN, (string) $postgres[$field])) {
                 $errors[] = sprintf('Field "storage.postgres.%s" must be a valid identifier (lowercase letters, digits, underscores)', $field);
+            }
+        }
+
+        if (array_key_exists('test_db_name', $postgres)) {
+            if (!is_string($postgres['test_db_name']) || '' === $postgres['test_db_name']) {
+                $errors[] = 'Field "storage.postgres.test_db_name" must be a non-empty string';
+            } elseif (!preg_match(self::IDENTIFIER_PATTERN, (string) $postgres['test_db_name'])) {
+                $errors[] = 'Field "storage.postgres.test_db_name" must be a valid identifier (lowercase letters, digits, underscores)';
             }
         }
 

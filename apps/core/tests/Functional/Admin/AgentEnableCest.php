@@ -25,6 +25,11 @@ final class AgentEnableCest
     {
         $this->login($I);
 
+        $I->sendPost('/api/v1/internal/agents/hello-agent/install');
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseContainsJson(['status' => 'installed', 'name' => 'hello-agent']);
+
         $I->sendPost('/api/v1/internal/agents/hello-agent/enable');
         $I->seeResponseCodeIs(200);
         $I->seeResponseIsJson();

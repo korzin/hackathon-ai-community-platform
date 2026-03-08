@@ -243,6 +243,30 @@ final class AgentRegistryRepository implements AgentRegistryInterface
         return $rows > 0;
     }
 
+    public function markUninstalled(string $name): bool
+    {
+        $rows = $this->connection->executeStatement(
+            <<<'SQL'
+            UPDATE agent_registry
+            SET installed_at = NULL,
+                enabled = FALSE,
+                disabled_at = now(),
+                enabled_by = NULL,
+                config = '{}',
+                updated_at = now()
+            WHERE name = :name
+            SQL,
+            ['name' => $name],
+        );
+
+        if ($rows > 0) {
+            $this->logger->info('Agent marked uninstalled', ['agent' => $name]);
+            $this->invalidateCache();
+        }
+
+        return $rows > 0;
+    }
+
     public function delete(string $name): bool
     {
         $rows = $this->connection->executeStatement(

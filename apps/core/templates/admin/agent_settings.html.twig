@@ -28,6 +28,19 @@
         </div>
     {% endif %}
 
+    {% if can_trigger_news_crawl %}
+        <div class="glass-card" style="margin-bottom:1.5rem;">
+            <h2>Ручний запуск парсингу</h2>
+            <p style="font-size:.9rem;color:var(--text-muted);margin-bottom:1rem;">
+                Запускає crawl + ranking + rewriting пайплайн news-maker-agent асинхронно.
+            </p>
+            <div style="display:flex;gap:.5rem;align-items:center;">
+                <button type="button" class="btn btn-primary" id="crawlTriggerBtn" onclick="triggerNewsCrawl()">Запустити парсинг новин</button>
+                <span id="crawlTriggerResult" class="action-result" style="display:none;"></span>
+            </div>
+        </div>
+    {% endif %}
+
     {# Agent config form (deprecated for agents with own storage) #}
     <div class="glass-card" style="margin-bottom:1.5rem;">
         <h2>Конфігурація</h2>
@@ -87,12 +100,13 @@
 
     {# Agent admin iframe (if admin_url is available) #}
     {% if admin_url %}
+        {% set iframe_url = admin_url ~ ('?' in admin_url ? '&' : '?') ~ 'embedded=1' %}
         <div class="glass-card" style="padding:0;overflow:hidden;">
             <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--bg-card-border);">
                 <h2 style="margin:0;">Панель агента</h2>
             </div>
             <div class="iframe-container">
-                <iframe src="{{ admin_url }}" title="Панель {{ agent_name }}"></iframe>
+                <iframe src="{{ iframe_url }}" title="Панель {{ agent_name }}"></iframe>
             </div>
         </div>
     {% endif %}
@@ -135,6 +149,46 @@ function saveConfig(e) {
         result.style.display = 'inline';
         btn.disabled = false;
         btn.textContent = 'Зберегти';
+    });
+}
+
+function triggerNewsCrawl() {
+    var btn = document.getElementById('crawlTriggerBtn');
+    var result = document.getElementById('crawlTriggerResult');
+
+    if (!btn || !result) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Запуск...';
+    result.style.display = 'none';
+
+    fetch('/api/v1/internal/agents/{{ agent_name|e('js') }}/crawl', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r) {
+        return r.json().then(function(body) { return { status: r.status, body: body }; });
+    })
+    .then(function(res) {
+        if (res.status >= 200 && res.status < 300) {
+            result.textContent = 'Парсинг запущено';
+            result.style.color = 'var(--success)';
+        } else {
+            result.textContent = res.body.error ? ('Помилка: ' + res.body.error) : ('Помилка: ' + res.status);
+            result.style.color = 'var(--danger)';
+        }
+        result.style.display = 'inline';
+    })
+    .catch(function() {
+        result.textContent = 'Помилка мережі';
+        result.style.color = 'var(--danger)';
+        result.style.display = 'inline';
+    })
+    .finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Запустити парсинг новин';
     });
 }
 </script>

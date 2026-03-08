@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 
+from app.config import settings
+
 router = APIRouter()
 
 
@@ -32,4 +34,17 @@ def get_manifest() -> dict:
             },
         ],
         "health_url": "http://news-maker-agent:8000/health",
+        "admin_url": settings.admin_public_url,
+        "storage": {
+            "postgres": {
+                "db_name": "news_maker_agent",
+                "user": "news_maker_agent",
+                "password": "news_maker_agent",
+                "startup_migration": {
+                    "enabled": True,
+                    "mode": "best_effort",
+                    "command": "alembic upgrade head || true",
+                },
+            },
+        },
     }

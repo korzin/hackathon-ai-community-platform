@@ -65,6 +65,8 @@ final class TracingHttpClient implements HttpClientInterface
 
         $featureName = $this->detectFeatureName($request);
         $traceId = $this->traceContext->getTraceId();
+        $effectiveTraceId = '' !== $traceId ? $traceId : $requestId;
+        $sessionId = $effectiveTraceId;
         $headers = [
             'X-Request-Id' => $requestId,
             'X-Service-Name' => $this->serviceName,
@@ -97,9 +99,10 @@ final class TracingHttpClient implements HttpClientInterface
             );
 
             $body['metadata'] = [
-                'trace_id' => $traceId,
+                'request_id' => $requestId,
+                'trace_id' => $effectiveTraceId,
                 'trace_name' => $this->serviceName.'.'.$featureName,
-                'session_id' => $requestId,
+                'session_id' => $sessionId,
                 'generation_name' => $featureName,
                 'tags' => [
                     'agent:'.$this->serviceName,
@@ -108,6 +111,7 @@ final class TracingHttpClient implements HttpClientInterface
                 'trace_user_id' => $userTag,
                 'trace_metadata' => [
                     'request_id' => $requestId,
+                    'session_id' => $sessionId,
                     'agent_name' => $this->serviceName,
                     'feature_name' => $featureName,
                 ],

@@ -18,10 +18,14 @@ final class AgentConfigCest
     public function agentsPageContainsSettingsLink(\FunctionalTester $I): void
     {
         $this->login($I);
+        $I->sendPost('/api/v1/internal/agents/hello-agent/install');
+        $I->seeResponseCodeIs(200);
+        $I->sendPost('/api/v1/internal/agents/hello-agent/enable');
+        $I->seeResponseCodeIs(200);
 
         $I->sendGet('/admin/agents');
         $I->seeResponseCodeIs(200);
-        $I->seeResponseContains('/settings');
+        $I->seeResponseContains('/admin/agents/hello-agent/settings');
         $I->seeResponseContains('Налаштування');
     }
 

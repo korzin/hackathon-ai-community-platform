@@ -4,8 +4,14 @@ module.exports = {
     url: '/admin/agents',
 
     discoverButton: '#discoverBtn',
+    installedTabButton: '#tab-installed-btn',
+    marketplaceTabButton: '#tab-marketplace-btn',
     agentsTable: 'table tbody',
     emptyState: '.empty-row',
+
+    activePaneRow(agentName) {
+        return `//div[contains(@class,"agent-tab-pane") and contains(@class,"active")]//tr[@data-agent-name="${agentName}"]`;
+    },
 
     /**
      * Navigate to the agents page.
@@ -13,6 +19,16 @@ module.exports = {
     async open() {
         I.amOnPage(this.url);
         await I.waitForElement('table', 10);
+    },
+
+    async switchToInstalled() {
+        I.click(this.installedTabButton);
+        await I.waitForElement('#tab-installed.agent-tab-pane.active', 5);
+    },
+
+    async switchToMarketplace() {
+        I.click(this.marketplaceTabButton);
+        await I.waitForElement('#tab-marketplace.agent-tab-pane.active', 5);
     },
 
     /**
@@ -29,7 +45,7 @@ module.exports = {
      * Returns the health badge text for a given agent name.
      */
     async getHealthBadge(agentName) {
-        const row = `//tr[@data-agent-name="${agentName}"]`;
+        const row = this.activePaneRow(agentName);
         return I.grabTextFrom(`${row}//span[contains(@class,"badge-healthy") or contains(@class,"badge-degraded") or contains(@class,"badge-unavailable") or contains(@class,"badge-error") or contains(@class,"badge-unknown")]`);
     },
 
@@ -37,29 +53,33 @@ module.exports = {
      * Assert that an agent row exists.
      */
     seeAgent(agentName) {
-        I.see(agentName, 'table');
+        const row = this.activePaneRow(agentName);
+        I.seeElement(row);
     },
 
     /**
      * Assert that an agent has the healthy badge.
      */
     seeAgentHealthy(agentName) {
-        I.see(agentName, 'table');
-        I.seeElement(`//tr[@data-agent-name="${agentName}"]//span[contains(@class,"badge-healthy")]`);
+        const row = this.activePaneRow(agentName);
+        I.seeElement(row);
+        I.seeElement(`${row}//span[contains(@class,"badge-healthy")]`);
     },
 
     /**
      * Assert that an agent is in enabled state.
      */
     seeAgentEnabled(agentName) {
-        I.seeElement(`//tr[@data-agent-name="${agentName}"]//span[contains(@class,"badge-enabled")]`);
+        const row = this.activePaneRow(agentName);
+        I.seeElement(`${row}//span[contains(@class,"badge-enabled")]`);
     },
 
     /**
      * Assert that an agent is in disabled state.
      */
     seeAgentDisabled(agentName) {
-        I.seeElement(`//tr[@data-agent-name="${agentName}"]//span[contains(@class,"badge-disabled")]`);
+        const row = this.activePaneRow(agentName);
+        I.seeElement(`${row}//span[contains(@class,"badge-disabled")]`);
     },
 
     /**
@@ -67,7 +87,7 @@ module.exports = {
      * Handles the confirm dialog automatically.
      */
     async disableAgent(agentName) {
-        const row = `//tr[@data-agent-name="${agentName}"]`;
+        const row = this.activePaneRow(agentName);
         I.click(`${row}//button[contains(@class,"btn-disable")]`);
     },
 
@@ -76,15 +96,31 @@ module.exports = {
      * Handles the confirm dialog automatically.
      */
     async enableAgent(agentName) {
-        const row = `//tr[@data-agent-name="${agentName}"]`;
+        const row = this.activePaneRow(agentName);
         I.click(`${row}//button[contains(@class,"btn-enable")]`);
+    },
+
+    /**
+     * Assert that an install button is visible for a given agent.
+     */
+    seeInstallButton(agentName) {
+        const row = this.activePaneRow(agentName);
+        I.seeElement(`${row}//button[contains(@class,"btn-install")]`);
+    },
+
+    /**
+     * Click the install button for a given agent.
+     */
+    async installAgent(agentName) {
+        const row = this.activePaneRow(agentName);
+        I.click(`${row}//button[contains(@class,"btn-install")]`);
     },
 
     /**
      * Assert that a delete button is visible for a given agent.
      */
     seeDeleteButton(agentName) {
-        const row = `//tr[@data-agent-name="${agentName}"]`;
+        const row = this.activePaneRow(agentName);
         I.seeElement(`${row}//button[contains(@class,"btn-delete")]`);
     },
 
@@ -92,7 +128,7 @@ module.exports = {
      * Assert that no delete button is visible for a given agent.
      */
     dontSeeDeleteButton(agentName) {
-        const row = `//tr[@data-agent-name="${agentName}"]`;
+        const row = this.activePaneRow(agentName);
         I.dontSeeElement(`${row}//button[contains(@class,"btn-delete")]`);
     },
 
@@ -101,7 +137,7 @@ module.exports = {
      * Confirm dialog must be auto-accepted beforehand.
      */
     async deleteAgent(agentName) {
-        const row = `//tr[@data-agent-name="${agentName}"]`;
+        const row = this.activePaneRow(agentName);
         I.click(`${row}//button[contains(@class,"btn-delete")]`);
     },
 };

@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Controller\Api\Internal;
 
 use App\A2AGateway\SkillCatalogSyncService;
+use App\AgentInstaller\AgentInstallerService;
+use App\AgentInstaller\AgentInstallException;
 use App\AgentRegistry\AgentRegistryAuditLogger;
 use App\AgentRegistry\AgentRegistryRepository;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -20,6 +23,8 @@ final class AgentDeleteController extends AbstractController
         private readonly AgentRegistryRepository $registry,
         private readonly AgentRegistryAuditLogger $audit,
         private readonly SkillCatalogSyncService $syncService,
+        private readonly AgentInstallerService $installer,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -41,10 +46,48 @@ final class AgentDeleteController extends AbstractController
 
         $actor = $this->getUser()?->getUserIdentifier() ?? 'unknown';
 
-        $this->registry->delete($name);
-        $this->audit->log($name, 'deleted', $actor);
-        $this->syncService->pushDiscovery();
+        $manifest = $this->decodeManifest($agent);
 
-        return $this->json(['status' => 'deleted', 'name' => $name]);
+        try {
+            $actions = $this->installer->uninstall($manifest);
+            $this->registry->markUninstalled($name);
+            $this->audit->log($name, 'uninstalled', $actor, ['deprovisioned_actions' => $actions]);
+            $this->syncService->pushDiscovery();
+        } catch (AgentInstallException $e) {
+            $this->logger->error('Agent uninstall failed', [
+                'agent' => $name,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->json([
+                'error' => sprintf('Storage deprovision failed: %s', $e->getMessage()),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['status' => 'uninstalled', 'name' => $name]);
+    }
+
+    /**
+     * @param array<string, mixed> $agentRow
+     *
+     * @return array<string, mixed>
+     */
+    private function decodeManifest(array $agentRow): array
+    {
+        if (is_array($agentRow['manifest'] ?? null)) {
+            return $agentRow['manifest'];
+        }
+
+        if (is_string($agentRow['manifest'] ?? null)) {
+            try {
+                $decoded = json_decode((string) $agentRow['manifest'], true, 512, JSON_THROW_ON_ERROR);
+
+                return is_array($decoded) ? $decoded : [];
+            } catch (\JsonException) {
+                return [];
+            }
+        }
+
+        return [];
     }
 }

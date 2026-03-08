@@ -37,6 +37,7 @@ final class AgentSettingsController extends AbstractController
             : ($agent['config'] ?? []);
 
         $hasOwnStorage = isset($manifest['storage']) && is_array($manifest['storage']);
+        $canTriggerNewsCrawl = 'news-maker-agent' === $name && null !== ($agent['installed_at'] ?? null);
 
         return $this->render('admin/agent_settings.html.twig', [
             'username' => $user->getUserIdentifier(),
@@ -47,6 +48,7 @@ final class AgentSettingsController extends AbstractController
             'admin_url' => $manifest['admin_url'] ?? null,
             'has_own_storage' => $hasOwnStorage,
             'installed_at' => $agent['installed_at'] ?? null,
+            'can_trigger_news_crawl' => $canTriggerNewsCrawl,
         ]);
     }
 }

@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace App\A2A\DTO;
 
 /**
- * Full Agent Card (manifest) describing an A2A agent.
+ * Full Agent Card describing an A2A agent.
  *
- * This is the primary data structure agents expose at their manifest endpoint
+ * This is the primary data structure exposed at the agent discovery endpoint
  * (GET /api/v1/manifest). It contains agent metadata, skills, capabilities,
- * provider info, and configuration for the platform to discover and interact
- * with the agent.
+ * provider info, and platform extension configuration.
  */
 final readonly class AgentCard
 {
@@ -66,7 +65,7 @@ final readonly class AgentCard
     }
 
     /**
-     * Hydrate an AgentCard from a raw manifest array.
+     * Hydrate an AgentCard from a raw Agent Card array.
      *
      * Handles backward compatibility:
      * - Normalizes deprecated `a2a_endpoint` to `url`

@@ -9,6 +9,12 @@ Hello Agent is a minimal reference agent demonstrating the full agent lifecycle 
 - `GET /api/v1/manifest` — Agent Card per platform conventions
 - Configuration via admin panel: `description` and `system_prompt` fields
 
+## Skills
+| Skill ID | Description | Input |
+|---|---|---|
+| `hello.greet` | Greet a user by name | `name` (string, optional) |
+| `hello.greet_me` | Greet the message sender by Telegram username. Triggered by "привітай мене", "greet me" | `username` (string, required) |
+
 ## Tech Stack
 - PHP 8.5 + Symfony 7
 - Apache (Docker)

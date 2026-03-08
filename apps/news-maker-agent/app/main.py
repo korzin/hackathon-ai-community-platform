@@ -11,6 +11,7 @@ from app.routers.admin import settings as admin_settings
 from app.routers.admin import sources as admin_sources
 from app.routers.api import manifest as api_manifest
 from app.routers.api import news as api_news
+from app.routers.dev import e2e as dev_e2e
 from app.routers.web import news as web_news
 
 logging.basicConfig(level=logging.INFO)
@@ -47,3 +48,6 @@ app.include_router(api_news.router)
 app.include_router(admin_sources.router)
 app.include_router(admin_settings.router)
 app.include_router(web_news.router)
+
+if settings.enable_test_endpoints:
+    app.include_router(dev_e2e.router)

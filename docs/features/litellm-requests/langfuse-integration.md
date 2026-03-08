@@ -63,6 +63,22 @@ The host uses the internal Docker network address, not the external Traefik-rout
 
 Both paths share `trace_id`. An A2A orchestration trace and the LLM generation it triggered will appear under the same trace in Langfuse.
 
+## Metadata Mapping Convention
+
+Use this mapping in every LiteLLM request body:
+
+- `metadata.trace_id` — one client message / orchestration trace across all agents.
+- `metadata.session_id` — stable grouping key for that message flow (use the same value as `trace_id` when no wider conversation id exists).
+- `metadata.request_id` — unique request id for the current LLM call.
+- `metadata.generation_name` — feature/skill method name.
+- `metadata.trace_metadata.request_id` — duplicate for compatibility with existing dashboards/queries.
+- `metadata.existing_trace_id` — optional when you explicitly append generations to an already created Langfuse trace.
+
+## Official LiteLLM Docs
+
+- LiteLLM observability + Langfuse metadata fields:
+  `https://docs.litellm.ai/docs/observability/langfuse_integration`
+
 ## Debugging Missing Traces
 
 ### Check LiteLLM logs
@@ -104,13 +120,14 @@ curl -sS http://localhost:4000/v1/chat/completions \
     "model": "minimax/minimax-m2.5",
     "messages": [{"role":"user","content":"ping"}],
     "metadata": {
+      "request_id": "req-manual-1",
       "trace_id": "00000000000000000000000000000001",
       "trace_name": "manual-test",
-      "session_id": "test-session-1",
+      "session_id": "00000000000000000000000000000001",
       "generation_name": "ping-test",
       "tags": ["agent:manual", "method:test"],
       "trace_user_id": "tester",
-      "trace_metadata": {"request_id": "req-manual-1"}
+      "trace_metadata": {"request_id": "req-manual-1", "session_id": "00000000000000000000000000000001"}
     }
   }'
 ```

@@ -27,6 +27,8 @@ def _get_client() -> OpenAI:
 def _trace_context() -> tuple[str, str, dict[str, str], str, dict[str, object]]:
     request_id = request_id_var.get("") or f"llm-ranker-{uuid.uuid4()}"
     trace_id = trace_id_var.get("")
+    effective_trace_id = trace_id or request_id
+    session_id = effective_trace_id
     headers = {
         "x-request-id": request_id,
         "x-service-name": SERVICE_NAME,
@@ -38,14 +40,16 @@ def _trace_context() -> tuple[str, str, dict[str, str], str, dict[str, object]]:
 
     user_tag = f"service={SERVICE_NAME};feature={FEATURE_NAME};request_id={request_id}"
     metadata = {
-        "trace_id": trace_id,
+        "request_id": request_id,
+        "trace_id": effective_trace_id,
         "trace_name": f"{SERVICE_NAME}.{FEATURE_NAME}",
-        "session_id": request_id,
+        "session_id": session_id,
         "generation_name": FEATURE_NAME,
         "tags": [f"agent:{SERVICE_NAME}", f"method:{FEATURE_NAME}"],
         "trace_user_id": user_tag,
         "trace_metadata": {
             "request_id": request_id,
+            "session_id": session_id,
             "agent_name": SERVICE_NAME,
             "feature_name": FEATURE_NAME,
         },

@@ -83,10 +83,13 @@ final class LiteLlmClient
         }
 
         // Sanitize potentially malformed UTF-8 from LLM response
-        $result = iconv('UTF-8', 'UTF-8//IGNORE', $result);
+        $sanitized = iconv('UTF-8', 'UTF-8//IGNORE', $result);
+        if (false === $sanitized) {
+            throw new \RuntimeException('LiteLLM request failed: invalid UTF-8 response payload');
+        }
 
         /** @var array<string, mixed> $data */
-        $data = json_decode($result, true, 512, JSON_THROW_ON_ERROR);
+        $data = json_decode($sanitized, true, 512, JSON_THROW_ON_ERROR);
 
         return $data;
     }

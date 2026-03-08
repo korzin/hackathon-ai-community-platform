@@ -72,4 +72,36 @@ final class A2AControllerCest
         $I->seeResponseContainsJson(['status' => 'completed']);
         $I->seeResponseContains('World');
     }
+
+    public function a2aGreetMeWithUsernameReturnsGreeting(\FunctionalTester $I): void
+    {
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->sendPost('/api/v1/a2a', json_encode([
+            'intent' => 'hello.greet_me',
+            'payload' => ['username' => 'testuser'],
+            'request_id' => 'test-req-004',
+            'trace_id' => 'test-trace-004',
+        ], \JSON_THROW_ON_ERROR));
+
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseContainsJson(['status' => 'completed']);
+        $I->seeResponseContains('"greeting"');
+        $I->seeResponseContains('@testuser');
+    }
+
+    public function a2aGreetMeWithoutUsernameReturnsWorld(\FunctionalTester $I): void
+    {
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->sendPost('/api/v1/a2a', json_encode([
+            'intent' => 'hello.greet_me',
+            'payload' => [],
+            'request_id' => 'test-req-005',
+        ], \JSON_THROW_ON_ERROR));
+
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseContainsJson(['status' => 'completed']);
+        $I->seeResponseContains('World');
+    }
 }

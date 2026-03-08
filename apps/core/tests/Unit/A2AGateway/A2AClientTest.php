@@ -27,7 +27,7 @@ final class A2AClientTest extends Unit
         $this->dbal = $this->createMock(Connection::class);
         $langfuse = new LangfuseIngestionClient(false, '', '', '', 'test', new NullLogger());
         $this->logger = $this->createMock(LoggerInterface::class);
-        $this->client = new A2AClient($this->registry, $this->dbal, $langfuse, new PayloadSanitizer(), $this->logger);
+        $this->client = new A2AClient($this->registry, $this->dbal, $langfuse, new PayloadSanitizer(), $this->logger, 'dev-internal-token');
     }
 
     public function testInvokeReturnsFailedForUnknownTool(): void
@@ -115,6 +115,40 @@ final class A2AClientTest extends Unit
 
         $this->assertSame('failed', $result['status']);
         $this->assertSame('no_a2a_endpoint', $result['reason']);
+    }
+
+    public function testInvokePassesCustomActorToAuditLog(): void
+    {
+        $agent = $this->buildAgent('actor-agent', ['actor.tool'], false);
+
+        $this->registry->method('findEnabled')->willReturn([]);
+        $this->registry->method('findAll')->willReturn([$agent]);
+
+        $this->dbal->expects($this->once())
+            ->method('executeStatement')
+            ->with(
+                $this->stringContains('INSERT INTO a2a_message_audit'),
+                $this->callback(fn (array $params): bool => 'cli:john' === ($params['actor'] ?? null)),
+            );
+
+        $this->client->invoke('actor.tool', [], 'trace-a', 'req-a', 'cli:john');
+    }
+
+    public function testInvokeUsesDefaultActorWhenNotProvided(): void
+    {
+        $agent = $this->buildAgent('default-agent', ['default.tool'], false);
+
+        $this->registry->method('findEnabled')->willReturn([]);
+        $this->registry->method('findAll')->willReturn([$agent]);
+
+        $this->dbal->expects($this->once())
+            ->method('executeStatement')
+            ->with(
+                $this->stringContains('INSERT INTO a2a_message_audit'),
+                $this->callback(fn (array $params): bool => 'openclaw' === ($params['actor'] ?? null)),
+            );
+
+        $this->client->invoke('default.tool', [], 'trace-d', 'req-d');
     }
 
     public function testInvokeLogsWarningForDisabledAgent(): void

@@ -21,31 +21,89 @@ final class AgentsController extends AbstractController
     #[Route('/admin/agents', name: 'admin_agents')]
     public function __invoke(#[CurrentUser] AdminUser $user): Response
     {
-        $agents = array_map(static function (array $agent): array {
-            if (is_string($agent['manifest'])) {
-                $agent['manifest'] = json_decode($agent['manifest'], true, 512, JSON_THROW_ON_ERROR);
-            }
-            if (is_string($agent['violations'])) {
-                $agent['violations'] = json_decode($agent['violations'], true, 512, JSON_THROW_ON_ERROR);
-            }
-            if (!is_array($agent['violations'])) {
-                $agent['violations'] = [];
-            }
-            if (is_string($agent['config'])) {
-                $agent['config_decoded'] = json_decode($agent['config'], true, 512, JSON_THROW_ON_ERROR);
-            } else {
-                $agent['config_decoded'] = $agent['config'];
-            }
-            if (!is_array($agent['config_decoded'])) {
-                $agent['config_decoded'] = [];
-            }
+        $agents = array_map([$this, 'normalizeAgentRow'], $this->registry->findAll());
 
-            return $agent;
-        }, $this->registry->findAll());
+        $installedAgents = array_values(array_filter(
+            $agents,
+            static fn (array $agent): bool => true === ($agent['is_installed'] ?? false),
+        ));
+
+        $marketplaceAgents = array_values(array_filter(
+            $agents,
+            static fn (array $agent): bool => false === ($agent['is_installed'] ?? false),
+        ));
 
         return $this->render('admin/agents.html.twig', [
             'agents' => $agents,
+            'installed_agents' => $installedAgents,
+            'marketplace_agents' => $marketplaceAgents,
             'username' => $user->getUserIdentifier(),
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $agent
+     *
+     * @return array<string, mixed>
+     */
+    private function normalizeAgentRow(array $agent): array
+    {
+        $manifest = $this->decodeJsonAssoc($agent['manifest'] ?? []);
+        $violations = $this->decodeJsonList($agent['violations'] ?? []);
+        $configDecoded = $this->decodeJsonAssoc($agent['config'] ?? []);
+
+        $agent['manifest'] = $manifest;
+        $agent['violations'] = $violations;
+        $agent['config_decoded'] = $configDecoded;
+        $agent['is_installed'] = null !== ($agent['installed_at'] ?? null);
+
+        return $agent;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function decodeJsonAssoc(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (!is_string($value) || '' === $value) {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+
+            return is_array($decoded) ? $decoded : [];
+        } catch (\JsonException) {
+            return [];
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function decodeJsonList(mixed $value): array
+    {
+        if (is_array($value)) {
+            return array_values(array_map(static fn (mixed $item): string => (string) $item, $value));
+        }
+
+        if (!is_string($value) || '' === $value) {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($decoded)) {
+                return [];
+            }
+
+            return array_values(array_map(static fn (mixed $item): string => (string) $item, $decoded));
+        } catch (\JsonException) {
+            return [];
+        }
     }
 }

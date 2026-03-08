@@ -12,6 +12,7 @@ final class LlmRequestContext
         public readonly string $requestId = '',
         public readonly string $traceId = '',
         public readonly string $sessionId = '',
+        public readonly string $userId = '',
     ) {
     }
 
@@ -33,15 +34,20 @@ final class LlmRequestContext
      */
     public function metadata(): array
     {
+        $traceId = '' !== $this->traceId ? $this->traceId : $this->requestId;
+        $sessionId = '' !== $this->sessionId ? $this->sessionId : $traceId;
+
         return [
-            'trace_id' => $this->traceId,
+            'request_id' => $this->requestId,
+            'trace_id' => $traceId,
             'trace_name' => $this->agentName.'.'.$this->featureName,
-            'session_id' => '' !== $this->sessionId ? $this->sessionId : $this->requestId,
+            'session_id' => $sessionId,
             'generation_name' => $this->featureName,
             'tags' => $this->tags(),
-            'trace_user_id' => $this->userTag(),
+            'trace_user_id' => '' !== $this->userId ? $this->userId : $this->userTag(),
             'trace_metadata' => [
                 'request_id' => $this->requestId,
+                'session_id' => $sessionId,
                 'agent_name' => $this->agentName,
                 'feature_name' => $this->featureName,
             ],

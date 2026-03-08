@@ -1,8 +1,11 @@
 """Crawler adapter: fetches source pages and extracts article candidates."""
 import hashlib
+import html
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urljoin, urlparse
 
 import requests
 import trafilatura
@@ -15,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 CRAWL_TIMEOUT = 20
 USER_AGENT = "Mozilla/5.0 (compatible; AICommunityBot/1.0)"
+HREF_PATTERN = re.compile(r"""href=["']([^"']+)["']""", re.IGNORECASE)
 
 
 def _fetch_html(url: str, proxy_url: str | None = None) -> str | None:
@@ -35,15 +39,21 @@ def _fetch_html(url: str, proxy_url: str | None = None) -> str | None:
 
 def _extract_article(html: str, url: str) -> dict | None:
     """Use trafilatura to extract article content from HTML."""
-    result = trafilatura.extract(
+    extracted = trafilatura.bare_extraction(
         html,
         url=url,
         include_links=False,
         include_images=False,
-        output_format="python",
         with_metadata=True,
     )
-    if not result:
+    if not extracted:
+        return None
+
+    if isinstance(extracted, dict):
+        result = extracted
+    elif hasattr(extracted, "as_dict"):
+        result = extracted.as_dict()
+    else:
         return None
 
     text = result.get("text", "") or ""
@@ -145,6 +155,10 @@ def run_crawl() -> None:
 
 def _extract_links(html: str, base_url: str) -> list[str]:
     """Extract article links from a source page using trafilatura."""
+    links_from_html = _extract_links_from_html(html, base_url)
+    if links_from_html:
+        return links_from_html[:20]
+
     try:
         from trafilatura.spider import focused_crawler
         # Use trafilatura's focused_crawler for link extraction
@@ -152,6 +166,34 @@ def _extract_links(html: str, base_url: str) -> list[str]:
         return list(links)[:20]
     except Exception:
         return []
+
+
+def _extract_links_from_html(page_html: str, base_url: str) -> list[str]:
+    links: list[str] = []
+    seen: set[str] = set()
+
+    for match in HREF_PATTERN.finditer(page_html):
+        href = html.unescape(match.group(1).strip())
+        if (
+            not href
+            or href.startswith("#")
+            or href.startswith("javascript:")
+            or href.startswith("mailto:")
+            or href.startswith("tel:")
+        ):
+            continue
+
+        absolute = urljoin(base_url, href).split("#", 1)[0]
+        parsed = urlparse(absolute)
+        if parsed.scheme not in ("http", "https"):
+            continue
+
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        links.append(absolute)
+
+    return links
 
 
 def run_cleanup() -> None:

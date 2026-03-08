@@ -49,4 +49,18 @@ final class AgentMigrationTriggerTest extends Unit
             'a2a_endpoint' => 'http://127.0.0.1:9/api/v1/a2a',
         ]);
     }
+
+    public function testTriggerMigrationsFallsBackToUrlField(): void
+    {
+        $trigger = new AgentMigrationTrigger('test-token');
+
+        $this->expectException(AgentInstallException::class);
+        $this->expectExceptionMessage('Migration trigger failed');
+
+        $trigger->triggerMigrations([
+            'name' => 'url-fallback-agent',
+            'version' => '1.0.0',
+            'url' => 'http://127.0.0.1:9/api/v1/a2a',
+        ]);
+    }
 }

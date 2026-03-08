@@ -5,12 +5,8 @@ declare(strict_types=1);
 namespace App\Controller\Api\Internal;
 
 use App\A2AGateway\SkillCatalogSyncService;
-use App\AgentInstaller\AgentInstallerService;
-use App\AgentInstaller\AgentInstallException;
-use App\AgentInstaller\AgentMigrationTrigger;
 use App\AgentRegistry\AgentRegistryAuditLogger;
 use App\AgentRegistry\AgentRegistryRepository;
-use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -24,9 +20,6 @@ final class AgentEnableController extends AbstractController
         private readonly AgentRegistryRepository $registry,
         private readonly AgentRegistryAuditLogger $audit,
         private readonly SkillCatalogSyncService $syncService,
-        private readonly AgentInstallerService $installer,
-        private readonly AgentMigrationTrigger $migrationTrigger,
-        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -41,30 +34,10 @@ final class AgentEnableController extends AbstractController
             return $this->json(['error' => sprintf('Agent "%s" not found', $name)], Response::HTTP_NOT_FOUND);
         }
 
-        $manifest = is_string($agent['manifest'] ?? null)
-            ? (array) json_decode($agent['manifest'], true)
-            : (is_array($agent['manifest'] ?? null) ? $agent['manifest'] : []);
-
-        $actions = [];
-
-        if (null === ($agent['installed_at'] ?? null) && isset($manifest['storage'])) {
-            try {
-                $actions = $this->installer->install($manifest);
-
-                if (isset($manifest['storage']['postgres'])) {
-                    $this->migrationTrigger->triggerMigrations($manifest);
-                    $this->logger->info('Agent migrations triggered', ['agent' => $name]);
-                }
-
-                $this->registry->markInstalled($name);
-                $this->logger->info('Agent storage provisioned', ['agent' => $name, 'actions' => $actions]);
-            } catch (AgentInstallException $e) {
-                $this->logger->error('Agent provisioning failed', ['agent' => $name, 'error' => $e->getMessage()]);
-
-                return $this->json([
-                    'error' => sprintf('Storage provisioning failed: %s', $e->getMessage()),
-                ], Response::HTTP_INTERNAL_SERVER_ERROR);
-            }
+        if (null === ($agent['installed_at'] ?? null)) {
+            return $this->json([
+                'error' => sprintf('Agent "%s" is not installed. Install it before enabling.', $name),
+            ], Response::HTTP_CONFLICT);
         }
 
         $updated = $this->registry->enable($name, $actor);
@@ -73,13 +46,13 @@ final class AgentEnableController extends AbstractController
             return $this->json(['error' => sprintf('Agent "%s" not found', $name)], Response::HTTP_NOT_FOUND);
         }
 
-        $this->audit->log($name, 'enabled', $actor, ['provisioned_actions' => $actions]);
+        $this->audit->log($name, 'enabled', $actor);
         $this->syncService->pushDiscovery();
 
         return $this->json([
             'status' => 'enabled',
             'name' => $name,
-            'provisioned' => $actions,
+            'provisioned' => [],
         ]);
     }
 }

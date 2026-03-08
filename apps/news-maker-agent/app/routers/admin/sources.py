@@ -1,5 +1,6 @@
 import uuid
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -10,6 +11,14 @@ from app.models.models import NewsSource
 from app.templates_config import templates
 
 router = APIRouter(prefix="/admin/sources", tags=["admin-sources"])
+
+
+def _is_valid_url(url: str) -> bool:
+    try:
+        result = urlparse(url)
+        return result.scheme in ("http", "https") and bool(result.netloc)
+    except Exception:
+        return False
 
 
 @router.get("", response_class=HTMLResponse)
@@ -24,12 +33,26 @@ def list_sources(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 @router.post("/create")
 def create_source(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     name: str = Form(...),
     base_url: str = Form(...),
     topic_scope: str = Form("ai"),
     crawl_priority: int = Form(5),
 ):
+    if not _is_valid_url(base_url):
+        sources = (
+            db.query(NewsSource)
+            .order_by(NewsSource.crawl_priority.desc(), NewsSource.name)
+            .all()
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/sources.html",
+            {"sources": sources, "error": "URL має починатися з http:// або https://"},
+            status_code=400,
+        )
+
     source = NewsSource(
         name=name,
         base_url=base_url,

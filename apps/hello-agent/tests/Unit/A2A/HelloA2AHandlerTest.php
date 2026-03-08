@@ -98,4 +98,43 @@ final class HelloA2AHandlerTest extends Unit
 
         $this->assertSame('Hello, Дімас!', $result['result']['greeting']);
     }
+
+    public function testGreetMeWithUsername(): void
+    {
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+
+        $result = $handler->handle([
+            'intent' => 'hello.greet_me',
+            'payload' => ['username' => 'nmdimas'],
+        ]);
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame('Hello, @nmdimas!', $result['result']['greeting']);
+    }
+
+    public function testGreetMeWithoutUsername(): void
+    {
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+
+        $result = $handler->handle([
+            'intent' => 'hello.greet_me',
+            'payload' => [],
+        ]);
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame('Hello, World!', $result['result']['greeting']);
+    }
+
+    public function testGreetMePreservesRequestId(): void
+    {
+        $handler = new HelloA2AHandler($this->logger, $this->payloadSanitizer, 'http://litellm:4000', '', 'minimax/minimax-m2.5');
+
+        $result = $handler->handle([
+            'intent' => 'hello.greet_me',
+            'request_id' => 'req-greetme-42',
+            'payload' => ['username' => 'testuser'],
+        ]);
+
+        $this->assertSame('req-greetme-42', $result['request_id']);
+    }
 }

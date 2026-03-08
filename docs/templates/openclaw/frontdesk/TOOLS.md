@@ -11,9 +11,22 @@ Use only these endpoints for routing and invocation.
 
 ```json
 {
-  "tool": "knowledge_search",
+  "tool": "knowledge.store_message",
   "input": {
-    "query": "symfony messenger retries"
+    "message": {
+      "platform": "telegram",
+      "chat_id": "-100123",
+      "message_id": "42",
+      "text": "Useful chat message",
+      "author": {
+        "id": "123",
+        "username": "john_doe"
+      },
+      "sent_at": "2026-03-07T12:00:00Z"
+    },
+    "metadata": {
+      "channel": "telegram.main"
+    }
   },
   "trace_id": "trace_...",
   "request_id": "req_..."
@@ -25,9 +38,12 @@ Use only these endpoints for routing and invocation.
 ```json
 {
   "status": "completed",
-  "result": {},
+  "result": {
+    "stored": true,
+    "id": "uuid"
+  },
   "agent": "knowledge-agent",
-  "tool": "knowledge_search",
+  "tool": "knowledge.store_message",
   "duration_ms": 142,
   "trace_id": "trace_...",
   "request_id": "req_..."

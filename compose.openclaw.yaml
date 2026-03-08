@@ -64,3 +64,37 @@ services:
       - sleep infinity
     volumes:
       - ./.local/openclaw/state:/home/node/.openclaw
+
+  openclaw-gateway-e2e:
+    profiles: [e2e]
+    image: ghcr.io/openclaw/openclaw:latest
+    pull_policy: always
+    entrypoint:
+      - /bin/sh
+      - -lc
+    env_file:
+      - ./docker/openclaw/.env
+    environment:
+      PLATFORM_CORE_URL: http://core-e2e
+      PLATFORM_DISCOVERY_URL: http://core-e2e/api/v1/a2a/discovery
+      PLATFORM_INVOKE_URL: http://core-e2e/api/v1/a2a/send-message
+      OPENSEARCH_URL: http://opensearch:9200
+    ports:
+      - "28789:28789"
+    command:
+      - cd /home/node/.openclaw/extensions/platform-tools && npm install --production 2>/dev/null; cd /home/node/.openclaw && openclaw config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true && exec openclaw gateway run --dev --allow-unconfigured --auth token --bind lan --port 28789 --token $$OPENCLAW_GATEWAY_TOKEN
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:28789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    volumes:
+      - ./.local/openclaw/e2e-state:/home/node/.openclaw
+      - ./docker/openclaw/plugins/platform-tools:/home/node/.openclaw/extensions/platform-tools
+    depends_on:
+      - opensearch
+    networks:
+      - dev-edge

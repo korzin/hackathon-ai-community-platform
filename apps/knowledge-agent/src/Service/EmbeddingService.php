@@ -32,6 +32,8 @@ final class EmbeddingService
 
         $featureName = $this->resolveFeatureName();
         $traceId = $this->traceContext->getTraceId();
+        $effectiveTraceId = '' !== $traceId ? $traceId : $requestId;
+        $sessionId = $effectiveTraceId;
         $headers = [
             'Authorization' => 'Bearer '.$this->litellmApiKey,
             'Content-Type' => 'application/json',
@@ -58,9 +60,10 @@ final class EmbeddingService
                 'input' => $text,
                 'user' => $userTag,
                 'metadata' => [
-                    'trace_id' => $traceId,
+                    'request_id' => $requestId,
+                    'trace_id' => $effectiveTraceId,
                     'trace_name' => self::SERVICE_NAME.'.'.$featureName,
-                    'session_id' => $requestId,
+                    'session_id' => $sessionId,
                     'generation_name' => $featureName,
                     'tags' => [
                         'agent:'.self::SERVICE_NAME,
@@ -69,6 +72,7 @@ final class EmbeddingService
                     'trace_user_id' => $userTag,
                     'trace_metadata' => [
                         'request_id' => $requestId,
+                        'session_id' => $sessionId,
                         'agent_name' => self::SERVICE_NAME,
                         'feature_name' => $featureName,
                     ],

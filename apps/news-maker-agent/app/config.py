@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     platform_core_url: str = "http://core"
     app_internal_token: str = "dev-internal-token"
     opensearch_url: str = "http://opensearch:9200"
+    admin_public_url: str = "http://localhost:8084/admin/sources"
+    enable_test_endpoints: bool = False
 
     model_config = {"env_file": ".env"}
 

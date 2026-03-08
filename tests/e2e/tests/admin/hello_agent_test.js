@@ -5,6 +5,8 @@
 
 const assert = require('assert');
 
+const HELLO_URL = process.env.HELLO_URL || 'http://localhost:18085';
+
 Feature('Admin: Hello Agent');
 
 Before(async ({ I, loginPage }) => {
@@ -70,8 +72,8 @@ Scenario(
 Scenario(
     'hello-agent webview renders greeting on port 8085',
     async ({ I }) => {
-        await I.ensureEdgeAccess('http://localhost:8085/');
-        I.amOnPage('http://localhost:8085/');
+        await I.ensureEdgeAccess(`${HELLO_URL}/`);
+        I.amOnPage(`${HELLO_URL}/`);
         await I.waitForText('Hello, World!', 5);
         I.see('Hello, World!');
     },
@@ -81,7 +83,7 @@ Scenario(
     'hello-agent health endpoint returns ok via Traefik',
     async ({ I }) => {
         const cookieName = process.env.EDGE_AUTH_COOKIE_NAME || 'ACP_EDGE_TOKEN';
-        await I.ensureEdgeAccess('http://localhost:8085/health');
+        await I.ensureEdgeAccess(`${HELLO_URL}/health`);
         const edgeCookie = await I.grabCookie(cookieName);
         if (!edgeCookie || !edgeCookie.value) {
             throw new Error(`Expected ${cookieName} cookie for health request`);
@@ -89,7 +91,7 @@ Scenario(
         I.haveRequestHeaders({ Cookie: `${cookieName}=${edgeCookie.value}` });
 
         const response = await I.sendGetRequest(
-            'http://localhost:8085/health',
+            `${HELLO_URL}/health`,
         );
         assert.strictEqual(response.status, 200);
         assert.strictEqual(response.data.status, 'ok');
@@ -101,7 +103,7 @@ Scenario(
     'hello-agent manifest is valid via Traefik',
     async ({ I }) => {
         const cookieName = process.env.EDGE_AUTH_COOKIE_NAME || 'ACP_EDGE_TOKEN';
-        await I.ensureEdgeAccess('http://localhost:8085/api/v1/manifest');
+        await I.ensureEdgeAccess(`${HELLO_URL}/api/v1/manifest`);
         const edgeCookie = await I.grabCookie(cookieName);
         if (!edgeCookie || !edgeCookie.value) {
             throw new Error(`Expected ${cookieName} cookie for manifest request`);
@@ -109,7 +111,7 @@ Scenario(
         I.haveRequestHeaders({ Cookie: `${cookieName}=${edgeCookie.value}` });
 
         const response = await I.sendGetRequest(
-            'http://localhost:8085/api/v1/manifest',
+            `${HELLO_URL}/api/v1/manifest`,
         );
         assert.strictEqual(response.status, 200);
         assert.strictEqual(response.data.name, 'hello-agent');
@@ -118,6 +120,10 @@ Scenario(
         assert.ok(
             response.data.skills.some((s) => s.id === 'hello.greet'),
             'skills must contain hello.greet',
+        );
+        assert.ok(
+            response.data.skills.some((s) => s.id === 'hello.greet_me'),
+            'skills must contain hello.greet_me',
         );
     },
 ).tag('@smoke').tag('@hello');

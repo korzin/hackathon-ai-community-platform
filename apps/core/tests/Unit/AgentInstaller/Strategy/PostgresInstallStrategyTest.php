@@ -26,7 +26,7 @@ final class PostgresInstallStrategyTest extends Unit
         $this->connection->method('fetchOne')
             ->willReturn(false);
 
-        $this->connection->expects($this->exactly(3))
+        $this->connection->expects($this->exactly(5))
             ->method('executeStatement');
 
         $this->connection->method('quote')
@@ -39,6 +39,7 @@ final class PostgresInstallStrategyTest extends Unit
 
         $this->assertContains('created_user:test_user', $actions);
         $this->assertContains('created_database:test_db', $actions);
+        $this->assertContains('created_database:test_db_test', $actions);
     }
 
     public function testProvisionSkipsExistingUser(): void
@@ -62,6 +63,7 @@ final class PostgresInstallStrategyTest extends Unit
 
         $this->assertNotContains('created_user:test_user', $actions);
         $this->assertContains('created_database:test_db', $actions);
+        $this->assertContains('created_database:test_db_test', $actions);
     }
 
     public function testProvisionSkipsExistingDatabase(): void
@@ -85,6 +87,7 @@ final class PostgresInstallStrategyTest extends Unit
 
         $this->assertContains('created_user:test_user', $actions);
         $this->assertNotContains('created_database:test_db', $actions);
+        $this->assertNotContains('created_database:test_db_test', $actions);
     }
 
     public function testProvisionIsIdempotentWhenBothExist(): void
@@ -125,5 +128,23 @@ final class PostgresInstallStrategyTest extends Unit
             ->willReturn(false);
 
         $this->assertFalse($this->strategy->isProvisioned(['db_name' => 'test_db', 'user' => 'test_user']));
+    }
+
+    public function testDeprovisionDropsDatabasesAndRole(): void
+    {
+        $this->connection->method('fetchOne')
+            ->willReturn(1);
+
+        $this->connection->expects($this->exactly(6))
+            ->method('executeStatement');
+
+        $actions = $this->strategy->deprovision(
+            ['db_name' => 'test_db', 'user' => 'test_user', 'password' => 'test_pass'],
+            'test-agent',
+        );
+
+        $this->assertContains('dropped_database:test_db_test', $actions);
+        $this->assertContains('dropped_database:test_db', $actions);
+        $this->assertContains('dropped_user:test_user', $actions);
     }
 }

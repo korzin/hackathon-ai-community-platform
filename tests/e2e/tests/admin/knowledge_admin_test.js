@@ -1,10 +1,33 @@
 // E2E: Knowledge Agent Admin Panel
 // Tests settings, CRUD, and encyclopedia toggle via the admin panel.
 
+const KNOWLEDGE_ADMIN_URL = process.env.KNOWLEDGE_URL
+    ? `${process.env.KNOWLEDGE_URL}/admin/knowledge`
+    : 'http://localhost:18083/admin/knowledge';
+const INTERNAL_TOKEN = process.env.APP_INTERNAL_TOKEN || 'dev-internal-token';
+
 Feature('Admin: Knowledge Agent Admin Panel');
 
 Before(async ({ I, loginPage }) => {
     await loginPage.loginAsAdmin();
+
+    // Ensure the agent registry has the correct E2E admin_url
+    // (discovery may overwrite it with the prod URL which is behind Traefik edge-auth)
+    await I.sendPostRequest(
+        '/api/v1/internal/agents/register',
+        JSON.stringify({
+            name: 'knowledge-agent',
+            version: '1.0.0',
+            description: 'Knowledge base management and semantic search',
+            url: 'http://knowledge-agent-e2e/api/v1/knowledge/a2a',
+            admin_url: KNOWLEDGE_ADMIN_URL,
+            skills: [
+                { id: 'knowledge.search', name: 'Knowledge Search', description: 'Search the knowledge base' },
+                { id: 'knowledge.upload', name: 'Knowledge Upload', description: 'Extract and store knowledge' },
+            ],
+        }),
+        { 'Content-Type': 'application/json', 'X-Platform-Internal-Token': INTERNAL_TOKEN },
+    );
 
     // Accept all confirm() dialogs automatically
     I.usePlaywrightTo('auto-accept dialogs', async ({ page }) => {
@@ -49,10 +72,11 @@ Scenario(
         I.click('Зберегти');
         await I.waitForText('Збережено', 5);
 
-        // Switch out and verify wiki returns 503 (wiki is on knowledge-agent port 8083)
+        // Switch out and verify wiki returns 503
+        const KNOWLEDGE_URL = process.env.KNOWLEDGE_URL || 'http://localhost:18083';
         await I.switchTo();
-        await I.ensureEdgeAccess('http://localhost:8083/wiki');
-        I.amOnPage('http://localhost:8083/wiki');
+        await I.ensureEdgeAccess(`${KNOWLEDGE_URL}/wiki`);
+        I.amOnPage(`${KNOWLEDGE_URL}/wiki`);
         I.see('недоступна');
 
         // Re-enable encyclopedia

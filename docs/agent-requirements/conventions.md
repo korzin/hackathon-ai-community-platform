@@ -78,7 +78,20 @@ Returns the Agent Card — agent metadata used by core for registration, skill r
   "events":             ["message.created"],
   "health_url":         "string (URL, optional)",
   "admin_url":          "string (optional)",
-  "storage":            { "postgres": {}, "redis": {}, "opensearch": {} }
+  "storage":            {
+    "postgres": {
+      "db_name": "string",
+      "user": "string",
+      "password": "string",
+      "startup_migration": {
+        "enabled": true,
+        "mode": "best_effort",
+        "command": "php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration || true"
+      }
+    },
+    "redis": {},
+    "opensearch": {}
+  }
 }
 ```
 
@@ -95,10 +108,11 @@ Returns the Agent Card — agent metadata used by core for registration, skill r
 | `health_url` | optional | Defaults to `http://<service-hostname>/health` |
 | `admin_url` | optional | Shown as link in core admin panel |
 | `skill_schemas` | deprecated | Fold input schemas into structured skills instead |
+| `storage.postgres.startup_migration` | if `storage.postgres` exists | Startup migration contract. Must declare non-blocking command with `mode = best_effort` |
 
 ### Validation behavior in core:
 
-| Manifest state | Core behavior | Agent status |
+| Agent Card state | Core behavior | Agent status |
 |---|---|---|
 | Valid, all required fields | Full registration | `healthy` |
 | Valid but missing optional fields | Partial registration with warnings | `degraded` |
@@ -155,7 +169,48 @@ Rules:
 
 ---
 
-## 5. Convention Verification in Core
+## 5. Inter-Agent Communication
+
+Agents MUST NOT call other agents directly by their Docker service name (e.g. `http://knowledge-agent/...`).
+All inter-agent communication MUST go through the A2A gateway in core via `PLATFORM_CORE_URL`:
+
+```
+POST {PLATFORM_CORE_URL}/api/v1/a2a/send-message
+```
+
+**Why:**
+
+- Core acts as a skill router — it resolves which agent handles a given skill and proxies the request.
+- Direct calls break E2E test isolation: E2E agents run as separate containers (`knowledge-agent-e2e`, `hello-agent-e2e`) and the direct URL would either hit a prod container or fail with DNS error.
+- Core provides unified auth, tracing, logging, and rate limiting for all A2A traffic.
+
+**Correct pattern:**
+
+```php
+// PHP: inject PLATFORM_CORE_URL from env
+$response = $httpClient->request('POST', $platformCoreUrl . '/api/v1/a2a/send-message', [
+    'json' => [
+        'tool'       => 'knowledge.search',
+        'input'      => ['query' => '...'],
+        'trace_id'   => $traceId,
+        'request_id' => $requestId,
+    ],
+]);
+```
+
+```python
+# Python: read PLATFORM_CORE_URL from env
+response = httpx.post(
+    f"{platform_core_url}/api/v1/a2a/send-message",
+    json={"tool": "knowledge.search", "input": {"query": "..."}, "trace_id": trace_id, "request_id": request_id},
+)
+```
+
+**Violation:** Any hardcoded `http://<other-agent-service>/` URL in agent source code is a convention violation.
+
+---
+
+## 6. Convention Verification in Core
 
 Core includes `AgentConventionVerifier` which checks all registered agents on demand and
 on every discovery cycle. It reports violations per-agent:
@@ -170,7 +225,7 @@ Admins can click a badge to view the full violation list.
 
 ---
 
-## 6. State Model In Admin UI
+## 7. State Model In Admin UI
 
 Admin state rendering (runtime `enabled/disabled` + health/convention states) is defined in:
 
@@ -182,9 +237,30 @@ This state model is a contract for:
 - badge semantics,
 - and stable selectors used by automated tests.
 
+### Lifecycle actions (install -> enable -> settings -> delete)
+
+Admin lifecycle for discovered agents is split into two tabs:
+
+- `Встановлені`: agents with `installed_at != null`
+- `Маркетплейс`: discoverable agents with `installed_at = null`
+
+Allowed actions and order:
+
+1. `POST /api/v1/internal/agents/{name}/install` — provisioning step (storage + migrations), does **not** enable traffic
+2. `POST /api/v1/internal/agents/{name}/enable` — runtime activation; requires prior install
+3. `GET /admin/agents/{name}/settings` — UI settings link is shown only for enabled installed agents
+4. `DELETE /api/v1/internal/agents/{name}` — full deprovision (Postgres/Redis/OpenSearch cleanup), returns agent to marketplace if still discoverable
+
+Postgres convention:
+
+- install provisions both primary DB (`db_name`) and E2E DB (`test_db_name` or `<db_name>_test`)
+- delete/deprovision removes both DBs and the declared DB role
+- agent MUST run startup migrations on each container start in non-blocking mode (`startup_migration.mode = best_effort`)
+- after code update, operators SHOULD run `docker compose restart <agent-service>` so startup migrations are applied
+
 ---
 
-## 7. Adding a New Agent — Checklist
+## 8. Adding a New Agent — Checklist
 
 1. Add service to `compose.yaml` with name ending `-agent` and label `ai.platform.agent=true`
 2. Implement `GET /api/v1/manifest` returning valid JSON

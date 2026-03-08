@@ -1,0 +1,32 @@
+paths:
+    tests: tests
+    output: tests/_output
+    data: tests/_data
+    support: tests/_support
+    envs: tests/_envs
+
+bootstrap: bootstrap.php
+
+settings:
+    shuffle: false
+    lint: true
+
+suites:
+    unit:
+        path: Unit
+        actor: UnitTester
+        modules:
+            enabled:
+                - Asserts
+    functional:
+        path: Functional
+        actor: FunctionalTester
+        modules:
+            enabled:
+                - Symfony:
+                    app_path: '.'
+                    environment: 'test'
+                - REST:
+                    url: /
+                    depends: Symfony
+                    part: Json

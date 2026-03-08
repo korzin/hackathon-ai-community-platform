@@ -73,6 +73,35 @@ final class AgentConventionVerifier
             $warnings[] = 'Field "capabilities" is missing — consider declaring A2A capabilities (streaming, pushNotifications)';
         }
 
+        // --- Startup migration contract for Postgres-backed agents ---
+        $postgres = $agentCard['storage']['postgres'] ?? null;
+        if (is_array($postgres)) {
+            $startupMigration = $postgres['startup_migration'] ?? null;
+
+            if (!is_array($startupMigration)) {
+                $errors[] = 'Field "storage.postgres.startup_migration" is required for Postgres-backed agents';
+            } else {
+                if (($startupMigration['enabled'] ?? null) !== true) {
+                    $errors[] = 'Field "storage.postgres.startup_migration.enabled" must be true';
+                }
+
+                if (!is_string($startupMigration['command'] ?? null) || '' === trim((string) $startupMigration['command'])) {
+                    $errors[] = 'Field "storage.postgres.startup_migration.command" must be a non-empty string';
+                }
+
+                $mode = $startupMigration['mode'] ?? null;
+                if (!is_string($mode) || '' === trim($mode)) {
+                    $errors[] = 'Field "storage.postgres.startup_migration.mode" must be a non-empty string';
+                } elseif ('best_effort' !== $mode) {
+                    $warnings[] = 'Field "storage.postgres.startup_migration.mode" should be "best_effort"';
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            return new ConventionResult('error', $errors);
+        }
+
         if (!empty($warnings)) {
             return new ConventionResult('degraded', $warnings);
         }

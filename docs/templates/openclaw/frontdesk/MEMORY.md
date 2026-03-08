@@ -15,6 +15,7 @@
 - `hello_greet`
 - `knowledge_search`
 - `knowledge_upload`
+- `knowledge.store_message`
 - `news_curate`
 - `news_publish`
 

@@ -71,14 +71,21 @@ Every outbound LLM API call (chat completions, embeddings) MUST include:
 "metadata": {
   "request_id": "...",
   "trace_id": "...",
-  "service_name": "...",
-  "agent_name": "...",
-  "feature_name": "..."
+  "trace_name": "...",
+  "session_id": "...",
+  "generation_name": "...",
+  "trace_metadata": {
+    "request_id": "...",
+    "session_id": "...",
+    "agent_name": "...",
+    "feature_name": "..."
+  }
 }
 ```
 
 - `request_id` and `trace_id` are REQUIRED
-- `service_name`, `agent_name`, `feature_name` are RECOMMENDED
+- `session_id` is REQUIRED for grouping and SHOULD be stable across all agent calls for one client message
+- `trace_name`, `generation_name`, `trace_metadata` are RECOMMENDED for Langfuse readability and filtering
 
 Tags are used for filtering and grouping in LiteLLM spend logs and dashboard.
 

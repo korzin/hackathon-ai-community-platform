@@ -36,6 +36,13 @@ final class ManifestController extends AbstractController
                     'tags' => ['greeting'],
                     'examples' => ['Greet John', 'Say hello to Maria'],
                 ],
+                [
+                    'id' => 'hello.greet_me',
+                    'name' => 'Hello Greet Me',
+                    'description' => 'Greet the message sender by their Telegram username. Use when someone asks to be greeted (e.g. "привітай мене", "greet me").',
+                    'tags' => ['greeting'],
+                    'examples' => ['Привітай мене', 'Greet me', 'Скажи мені привіт'],
+                ],
             ],
             'skill_schemas' => [
                 'hello.greet' => [
@@ -48,6 +55,19 @@ final class ManifestController extends AbstractController
                                 'description' => 'Name of the person to greet',
                             ],
                         ],
+                    ],
+                ],
+                'hello.greet_me' => [
+                    'description' => 'Greet the message sender by their Telegram username. Use when someone asks to be greeted.',
+                    'input_schema' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'username' => [
+                                'type' => 'string',
+                                'description' => 'Telegram username of the message sender',
+                            ],
+                        ],
+                        'required' => ['username'],
                     ],
                 ],
             ],

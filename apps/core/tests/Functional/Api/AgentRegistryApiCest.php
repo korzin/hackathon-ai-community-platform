@@ -34,6 +34,32 @@ final class AgentRegistryApiCest
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function postgresManifestWithUnreachableMigration(string $name): array
+    {
+        $suffix = bin2hex(random_bytes(4));
+
+        return [
+            'name' => $name,
+            'version' => '1.0.0',
+            'description' => 'Registry API postgres install test agent',
+            'permissions' => ['admin'],
+            'commands' => ['/test'],
+            'events' => ['message.created'],
+            // Closed localhost port in core container => migration trigger fails fast.
+            'a2a_endpoint' => 'http://127.0.0.1:9/a2a',
+            'storage' => [
+                'postgres' => [
+                    'db_name' => sprintf('agent_install_%s', $suffix),
+                    'user' => sprintf('agent_install_%s', $suffix),
+                    'password' => sprintf('pwd_%s', $suffix),
+                ],
+            ],
+        ];
+    }
+
     public function registerAgentFailsWithoutToken(\FunctionalTester $I): void
     {
         $I->haveHttpHeader('Content-Type', 'application/json');
@@ -80,10 +106,16 @@ final class AgentRegistryApiCest
 
     public function enableDisableAgentRequiresAuthentication(\FunctionalTester $I): void
     {
+        $I->sendPost('/api/v1/internal/agents/some-agent/install');
+        $I->seeResponseContains('_username');
+
         $I->sendPost('/api/v1/internal/agents/some-agent/enable');
         $I->seeResponseContains('_username');
 
         $I->sendPost('/api/v1/internal/agents/some-agent/disable');
+        $I->seeResponseContains('_username');
+
+        $I->sendPost('/api/v1/internal/agents/some-agent/crawl');
         $I->seeResponseContains('_username');
     }
 
@@ -114,6 +146,11 @@ final class AgentRegistryApiCest
 
         $this->login($I);
 
+        $I->sendPost(sprintf('/api/v1/internal/agents/%s/install', $name));
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseContainsJson(['status' => 'installed', 'name' => $name]);
+
         $I->sendPost(sprintf('/api/v1/internal/agents/%s/enable', $name));
         $I->seeResponseCodeIs(200);
         $I->seeResponseIsJson();
@@ -123,5 +160,58 @@ final class AgentRegistryApiCest
         $I->seeResponseCodeIs(200);
         $I->seeResponseIsJson();
         $I->seeResponseContainsJson(['status' => 'disabled', 'name' => $name]);
+    }
+
+    public function enableRequiresInstallFirst(\FunctionalTester $I): void
+    {
+        $name = 'api-not-installed-agent-'.bin2hex(random_bytes(4));
+
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->haveHttpHeader('X-Platform-Internal-Token', self::INTERNAL_TOKEN);
+        $I->sendPost('/api/v1/internal/agents/register', json_encode($this->validManifest($name), JSON_THROW_ON_ERROR));
+        $I->seeResponseCodeIs(200);
+
+        $this->login($I);
+
+        $I->sendPost(sprintf('/api/v1/internal/agents/%s/enable', $name));
+        $I->seeResponseCodeIs(409);
+        $I->seeResponseIsJson();
+        $I->seeResponseContains('not installed');
+    }
+
+    public function installContinuesWhenMigrationTriggerFails(\FunctionalTester $I): void
+    {
+        $name = 'api-install-warning-agent-'.bin2hex(random_bytes(4));
+
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->haveHttpHeader('X-Platform-Internal-Token', self::INTERNAL_TOKEN);
+        $I->sendPost('/api/v1/internal/agents/register', json_encode($this->postgresManifestWithUnreachableMigration($name), JSON_THROW_ON_ERROR));
+        $I->seeResponseCodeIs(200);
+
+        $this->login($I);
+
+        $I->sendPost(sprintf('/api/v1/internal/agents/%s/install', $name));
+        $I->seeResponseCodeIs(200);
+        $I->seeResponseIsJson();
+        $I->seeResponseContainsJson(['status' => 'installed', 'name' => $name]);
+        $I->seeResponseContains('"warnings"');
+        $I->seeResponseContains('Migration trigger failed (best effort)');
+    }
+
+    public function crawlTriggerReturnsConflictForNonNewsMakerAgent(\FunctionalTester $I): void
+    {
+        $name = 'api-crawl-unsupported-agent-'.bin2hex(random_bytes(4));
+
+        $I->haveHttpHeader('Content-Type', 'application/json');
+        $I->haveHttpHeader('X-Platform-Internal-Token', self::INTERNAL_TOKEN);
+        $I->sendPost('/api/v1/internal/agents/register', json_encode($this->validManifest($name), JSON_THROW_ON_ERROR));
+        $I->seeResponseCodeIs(200);
+
+        $this->login($I);
+
+        $I->sendPost(sprintf('/api/v1/internal/agents/%s/crawl', $name));
+        $I->seeResponseCodeIs(409);
+        $I->seeResponseIsJson();
+        $I->seeResponseContains('supported only for news-maker-agent');
     }
 }

@@ -30,12 +30,19 @@ final class A2AController extends AbstractController
         /** @var array<string, mixed>|null $data */
         $data = json_decode($request->getContent(), true);
 
-        if (!\is_array($data) || !isset($data['request'])) {
+        if (!\is_array($data)) {
             return $this->json(['error' => 'Invalid A2A payload'], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         /** @var array<string, mixed> $a2aRequest */
-        $a2aRequest = $data['request'];
+        $a2aRequest = isset($data['request']) && \is_array($data['request'])
+            ? $data['request']
+            : $data;
+
+        if (!isset($a2aRequest['intent'])) {
+            return $this->json(['error' => 'Invalid A2A payload: intent is required'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
         $result = $this->handler->handle($a2aRequest);
 
         return $this->json($result);

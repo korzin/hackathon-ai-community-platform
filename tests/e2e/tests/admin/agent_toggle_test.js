@@ -1,6 +1,5 @@
 // E2E: Admin agent enable/disable toggle
 // Tests that an agent can be enabled and disabled via the admin UI.
-// Agents start in disabled state after discovery.
 
 Feature('Admin: Agent Enable/Disable Toggle');
 
@@ -19,9 +18,22 @@ Scenario(
     'can enable and disable knowledge-agent',
     async ({ I, agentsPage }) => {
         await agentsPage.open();
+        await agentsPage.switchToInstalled();
 
-        // Pre-condition: knowledge-agent exists and starts disabled
+        // Pre-condition: knowledge-agent exists
         agentsPage.seeAgent('knowledge-agent');
+
+        // Ensure agent starts disabled (may already be enabled from e2e-prepare)
+        const enabledCount = await I.grabNumberOfVisibleElements(
+            '//tr[@data-agent-name="knowledge-agent"]//span[contains(@class,"badge-enabled")]',
+        );
+        if (enabledCount > 0) {
+            await agentsPage.disableAgent('knowledge-agent');
+            await I.waitForElement(
+                '//tr[@data-agent-name="knowledge-agent"]//span[contains(@class,"badge-disabled")]',
+                10,
+            );
+        }
         agentsPage.seeAgentDisabled('knowledge-agent');
 
         // Step 1: Enable the agent

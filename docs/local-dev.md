@@ -135,12 +135,19 @@ docker compose restart openclaw-gateway
 | Service | URL | Notes |
 |---------|-----|-------|
 | Core platform | `http://localhost/` | Symfony app via Traefik |
+| Core E2E runtime | `http://localhost:18080/` | E2E Core runtime (`ai_community_platform_test`) |
+| Knowledge Agent E2E | `http://localhost:18083/` | E2E Knowledge Agent (`knowledge_agent_test`) |
+| News-Maker Agent E2E | `http://localhost:18084/` | E2E News-Maker Agent (`news_maker_agent_test`) |
+| Hello Agent E2E | `http://localhost:18085/` | E2E Hello Agent (stateless) |
+| Dev Reporter Agent | `http://localhost:8087/` | Pipeline run history + Telegram notifications |
+| Dev Reporter Admin | `http://localhost:8087/admin/pipeline` | Pipeline runs admin panel |
+| OpenClaw Gateway E2E | `http://localhost:28789/` | E2E OpenClaw Gateway |
 | Admin panel | `http://localhost/admin/login` | `admin` / `test-password` |
 | OpenClaw UI | `http://localhost:8082/` | Via Traefik + edge login |
 | Langfuse UI | `http://localhost:8086/` | Via Traefik + edge login |
 | OpenClaw direct | `http://localhost:18789/` | Direct container port |
 | Traefik dashboard / API | `http://localhost:8080/dashboard/`, `http://localhost:8080/api/` | Insecure mode, local only |
-| Postgres | `localhost:5432` | `app` / `app` / `ai_community_platform` |
+| Postgres | `localhost:5432` | `app` / `app` / `ai_community_platform` + `*_test` DBs |
 | Redis | `localhost:6379` | |
 | OpenSearch | `http://localhost:9200/` | |
 | RabbitMQ | `localhost:5672`, `http://localhost:15672/` | `app` / `app` |
@@ -308,12 +315,29 @@ make cs-check    # PHP CS Fixer dry-run
 make cs-fix      # PHP CS Fixer auto-fix
 ```
 
+### Dev Reporter Agent
+
+```bash
+make dev-reporter-setup    # Build container + install dependencies (first time)
+make dev-reporter-migrate  # Run Doctrine migrations for pipeline_runs table
+make dev-reporter-test     # Run Codeception tests
+make dev-reporter-analyse  # PHPStan level 8
+make dev-reporter-cs-check # PHP CS Fixer dry-run
+make dev-reporter-cs-fix   # PHP CS Fixer auto-fix
+```
+
 ## E2E Tests
 
 ```bash
-make e2e         # Playwright + CodeceptJS (requires Node.js)
-make e2e-smoke   # Smoke tests only (no browser)
+make e2e-prepare # Provision test DBs, RabbitMQ vhost, run migrations, register agents
+make e2e         # Playwright + CodeceptJS against full E2E stack (all agents isolated)
+make e2e-smoke   # Smoke/REST-only E2E
+make e2e-cleanup # Stop all E2E containers
 ```
+
+`make e2e` and `make e2e-smoke` automatically run `make e2e-prepare` first.
+E2E tests run against duplicate containers with isolated data stores (`_test` databases,
+odd Redis DBs, `/test` RabbitMQ vhost). See `docs/agent-requirements/e2e-testing.md` for details.
 
 ## AI Agent Skills
 

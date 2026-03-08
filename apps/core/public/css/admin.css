@@ -138,6 +138,7 @@ a:hover { text-decoration: underline; }
 .btn-primary:hover { background: var(--accent-hover); opacity: 1; }
 .btn-enable { background: var(--success); color: #fff; }
 .btn-disable { background: var(--danger); color: #fff; }
+.btn-install { background: var(--accent); color: #fff; }
 .btn-delete { background: transparent; color: #fca5a5; border: 1px solid rgba(239, 68, 68, .4); }
 .btn-delete:hover { background: var(--danger-bg); opacity: 1; }
 .btn-settings { background: rgba(148, 163, 184, .2); color: var(--text-secondary); }
@@ -149,6 +150,13 @@ a:hover { text-decoration: underline; }
    ========================================================================== */
 .action-bar { display: flex; justify-content: flex-end; margin-bottom: 1rem; gap: .75rem; align-items: center; }
 .action-bar .action-result { font-size: .85rem; color: var(--text-secondary); }
+
+/* Agent tabs */
+.agent-tabs { display: flex; gap: .5rem; margin-bottom: .85rem; }
+.btn-tab { background: rgba(148, 163, 184, .12); color: var(--text-secondary); border: 1px solid var(--bg-card-border); }
+.btn-tab.active { background: rgba(59, 130, 246, .18); color: #93c5fd; border-color: rgba(59, 130, 246, .45); }
+.agent-tab-pane { display: none; }
+.agent-tab-pane.active { display: block; }
 
 /* ==========================================================================
    State legend + hints

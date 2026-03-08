@@ -21,6 +21,7 @@ final class A2AClient
         private readonly LangfuseIngestionClient $langfuse,
         private readonly PayloadSanitizer $payloadSanitizer,
         private readonly LoggerInterface $logger,
+        private readonly string $internalToken = '',
     ) {
     }
 
@@ -31,7 +32,7 @@ final class A2AClient
      *
      * @return array<string, mixed>
      */
-    public function invoke(string $tool, array $input, string $traceId, string $requestId): array
+    public function invoke(string $tool, array $input, string $traceId, string $requestId, string $actor = 'openclaw'): array
     {
         foreach ($this->registry->findEnabled() as $agent) {
             /** @var array<string, mixed> $manifest */
@@ -52,7 +53,7 @@ final class A2AClient
                     ]),
                 );
 
-                return $this->callAgent($agent, $manifest, $tool, $input, $traceId, $requestId);
+                return $this->callAgent($agent, $manifest, $tool, $input, $traceId, $requestId, $actor);
             }
         }
 
@@ -76,7 +77,7 @@ final class A2AClient
                         'error_code' => 'agent_disabled',
                     ]),
                 );
-                $this->auditLog($tool, (string) $agent['name'], $traceId, $requestId, 0, 'failed', 0, 'agent_disabled');
+                $this->auditLog($tool, (string) $agent['name'], $traceId, $requestId, 0, 'failed', 0, 'agent_disabled', $actor);
 
                 return ['status' => 'failed', 'reason' => 'agent_disabled'];
             }
@@ -110,6 +111,7 @@ final class A2AClient
         array $input,
         string $traceId,
         string $requestId,
+        string $actor = 'openclaw',
     ): array {
         $a2aEndpoint = ManifestValidator::resolveUrl($manifest);
         $agentName = (string) $agent['name'];
@@ -125,7 +127,7 @@ final class A2AClient
                     'error_code' => 'no_a2a_endpoint',
                 ]),
             );
-            $this->auditLog($tool, $agentName, $traceId, $requestId, 0, 'failed', 0, 'no_a2a_endpoint');
+            $this->auditLog($tool, $agentName, $traceId, $requestId, 0, 'failed', 0, 'no_a2a_endpoint', $actor);
 
             return ['status' => 'failed', 'reason' => 'no_a2a_endpoint'];
         }
@@ -156,6 +158,9 @@ final class A2AClient
             'x-agent-run-id' => $agentRunId,
             'x-a2a-hop' => '1',
         ];
+        if ('' !== $this->internalToken) {
+            $headers['X-Platform-Internal-Token'] = $this->internalToken;
+        }
         $sanitizedInput = $this->payloadSanitizer->sanitize($payload);
         $sanitizedHeaders = $this->payloadSanitizer->sanitize($headers);
         $this->logger->info(
@@ -187,7 +192,8 @@ final class A2AClient
             $taskId = isset($result['task_id']) ? (string) $result['task_id'] : null;
             $errorCode = 'failed' === $status ? (string) ($result['reason'] ?? 'a2a_failed') : null;
             $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
-            $this->logger->info(
+            $logLevel = 'failed' === $status ? 'warning' : 'info';
+            $this->logger->$logLevel(
                 'A2A outbound completed',
                 TraceEvent::build('core.a2a.outbound.completed', 'a2a_outbound', 'core', $status, [
                     'target_app' => $agentName,
@@ -229,7 +235,7 @@ final class A2AClient
             );
         }
 
-        $this->auditLog($tool, $agentName, $traceId, $requestId, $durationMs, $status, $httpStatusCode, $errorCode);
+        $this->auditLog($tool, $agentName, $traceId, $requestId, $durationMs, $status, $httpStatusCode, $errorCode, $actor);
         $this->langfuse->recordA2ACall(
             $traceId,
             $requestId,
@@ -257,7 +263,7 @@ final class A2AClient
      */
     private function postJson(string $url, array $payload, array $extraHeaders = []): array
     {
-        $body = json_encode($payload, JSON_THROW_ON_ERROR);
+        $body = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         $headerLines = [
             'Content-Type: application/json',
             'Content-Length: '.strlen($body),
@@ -319,13 +325,14 @@ final class A2AClient
         string $status,
         int $httpStatusCode = 0,
         ?string $errorCode = null,
+        string $actor = 'openclaw',
     ): void {
         $this->dbal->executeStatement(
             <<<'SQL'
             INSERT INTO a2a_message_audit
                 (skill, agent, trace_id, request_id, duration_ms, status, http_status_code, error_code, actor, created_at)
             VALUES
-                (:skill, :agent, :traceId, :requestId, :durationMs, :status, :httpStatusCode, :errorCode, 'openclaw', now())
+                (:skill, :agent, :traceId, :requestId, :durationMs, :status, :httpStatusCode, :errorCode, :actor, now())
             SQL,
             [
                 'skill' => $skill,
@@ -336,6 +343,7 @@ final class A2AClient
                 'status' => $status,
                 'httpStatusCode' => $httpStatusCode > 0 ? $httpStatusCode : null,
                 'errorCode' => $errorCode,
+                'actor' => $actor,
             ],
         );
     }

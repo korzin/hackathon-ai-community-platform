@@ -4,14 +4,14 @@ exports.config = {
     output: './output',
     helpers: {
         Playwright: {
-            url: process.env.BASE_URL || 'http://localhost',
+            url: process.env.BASE_URL || 'http://localhost:18080',
             show: process.env.HEADLESS === 'false',
             browser: 'chromium',
             waitForNavigation: 'networkidle',
             waitForTimeout: 10000,
         },
         REST: {
-            endpoint: process.env.BASE_URL || 'http://localhost',
+            endpoint: process.env.BASE_URL || 'http://localhost:18080',
             defaultHeaders: {
                 Accept: 'application/json',
             },

@@ -13,6 +13,7 @@ final class HelloA2AHandler
     private const DEFAULT_SYSTEM_PROMPT = 'You are a friendly greeter. Respond with a warm, creative greeting.';
     private const SERVICE_NAME = 'hello-agent';
     private const FEATURE_GREET = 'a2a.hello.greet';
+    private const FEATURE_GREET_ME = 'a2a.hello.greet_me';
 
     public function __construct(
         private readonly LoggerInterface $logger,
@@ -42,6 +43,7 @@ final class HelloA2AHandler
 
         return match ($intent) {
             'hello.greet' => $this->handleGreet($payload, $requestId, $systemPrompt, $logCtx),
+            'hello.greet_me' => $this->handleGreetMe($payload, $requestId, $systemPrompt, $logCtx),
             default => $this->handleUnknown($intent, $requestId, $logCtx),
         };
     }
@@ -66,14 +68,7 @@ final class HelloA2AHandler
                 'capture_meta' => $sanitizedInput['capture_meta'],
             ]),
         );
-        $this->logger->info('Greeting requested', $logCtx + ['name' => $name]);
-
         $greeting = $this->generateGreeting($name, $systemPrompt, $logCtx);
-
-        $this->logger->info('Greeting processed', $logCtx + [
-            'name' => $name,
-            'via_llm' => '' !== $this->liteLlmApiKey,
-        ]);
 
         $result = [
             'status' => 'completed',
@@ -97,14 +92,57 @@ final class HelloA2AHandler
     }
 
     /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $logCtx
+     *
+     * @return array<string, mixed>
+     */
+    private function handleGreetMe(array $payload, string $requestId, string $systemPrompt, array $logCtx): array
+    {
+        $username = (string) ($payload['username'] ?? '');
+        $displayName = '' !== $username ? '@'.$username : 'World';
+
+        $sanitizedInput = $this->payloadSanitizer->sanitize($payload);
+        $this->logger->info(
+            'Intent hello.greet_me started',
+            TraceEvent::build('hello.intent.greet_me.started', 'intent_handle', self::SERVICE_NAME, 'started', $logCtx + [
+                'target_app' => self::SERVICE_NAME,
+                'intent' => 'hello.greet_me',
+                'step_input' => $sanitizedInput['data'],
+                'capture_meta' => $sanitizedInput['capture_meta'],
+            ]),
+        );
+
+        $greeting = $this->generateGreetMe($displayName, $systemPrompt, $logCtx);
+
+        $result = [
+            'status' => 'completed',
+            'request_id' => $requestId,
+            'result' => [
+                'greeting' => $greeting,
+            ],
+        ];
+        $sanitizedOutput = $this->payloadSanitizer->sanitize($result);
+        $this->logger->info(
+            'Intent hello.greet_me completed',
+            TraceEvent::build('hello.intent.greet_me.completed', 'intent_handle', self::SERVICE_NAME, 'completed', $logCtx + [
+                'target_app' => self::SERVICE_NAME,
+                'intent' => 'hello.greet_me',
+                'step_output' => $sanitizedOutput['data'],
+                'capture_meta' => $sanitizedOutput['capture_meta'],
+            ]),
+        );
+
+        return $result;
+    }
+
+    /**
      * @param array<string, mixed> $logCtx
      *
      * @return array<string, mixed>
      */
     private function handleUnknown(string $intent, string $requestId, array $logCtx): array
     {
-        $this->logger->warning('Unknown intent received', $logCtx);
-
         $result = [
             'status' => 'failed',
             'request_id' => $requestId,
@@ -138,10 +176,6 @@ final class HelloA2AHandler
 
         $system = '' !== $systemPrompt ? $systemPrompt : self::DEFAULT_SYSTEM_PROMPT;
 
-        $this->logger->debug('Calling LLM', $logCtx + [
-            'model' => $this->llmModel,
-            'has_custom_prompt' => '' !== $systemPrompt,
-        ]);
         $llmInput = $this->payloadSanitizer->sanitize([
             'model' => $this->llmModel,
             'name' => $name,
@@ -169,10 +203,6 @@ final class HelloA2AHandler
             );
             $durationMs = (int) ((microtime(true) - $start) * 1000);
 
-            $this->logger->info('LLM call succeeded', $logCtx + [
-                'model' => $this->llmModel,
-                'duration_ms' => $durationMs,
-            ]);
             $llmOutput = $this->payloadSanitizer->sanitize(['greeting' => $result]);
             $this->logger->info(
                 'LLM call completed',
@@ -189,17 +219,12 @@ final class HelloA2AHandler
         } catch (\Throwable $e) {
             $durationMs = (int) ((microtime(true) - $start) * 1000);
 
-            $this->logger->warning('LLM call failed, using fallback', $logCtx + [
-                'error' => $e->getMessage(),
-                'model' => $this->llmModel,
-                'duration_ms' => $durationMs,
-            ]);
             $llmOutput = $this->payloadSanitizer->sanitize([
                 'error' => $e->getMessage(),
                 'fallback' => "Hello, {$name}!",
             ]);
-            $this->logger->warning(
-                'LLM call failed',
+            $this->logger->info(
+                'LLM call failed, using fallback',
                 TraceEvent::build('hello.llm.call.failed', 'llm_call', self::SERVICE_NAME, 'failed', $logCtx + [
                     'target_app' => 'litellm',
                     'intent' => 'hello.greet',
@@ -214,6 +239,82 @@ final class HelloA2AHandler
         }
     }
 
+    /**
+     * @param array<string, mixed> $logCtx
+     */
+    private function generateGreetMe(string $displayName, string $systemPrompt, array $logCtx): string
+    {
+        if ('' === $this->liteLlmApiKey) {
+            $this->logger->debug('No API key, using fallback greeting', $logCtx + ['display_name' => $displayName]);
+
+            return "Hello, {$displayName}!";
+        }
+
+        $system = '' !== $systemPrompt ? $systemPrompt : self::DEFAULT_SYSTEM_PROMPT;
+
+        $llmInput = $this->payloadSanitizer->sanitize([
+            'model' => $this->llmModel,
+            'display_name' => $displayName,
+            'has_custom_prompt' => '' !== $systemPrompt,
+        ]);
+        $this->logger->info(
+            'LLM call started',
+            TraceEvent::build('hello.llm.call.started', 'llm_call', self::SERVICE_NAME, 'started', $logCtx + [
+                'target_app' => 'litellm',
+                'intent' => 'hello.greet_me',
+                'step_input' => $llmInput['data'],
+                'capture_meta' => $llmInput['capture_meta'],
+            ]),
+        );
+
+        $start = microtime(true);
+
+        try {
+            $result = $this->callLlm(
+                $system,
+                "Привітай користувача {$displayName}",
+                (string) ($logCtx['request_id'] ?? ''),
+                (string) ($logCtx['trace_id'] ?? ''),
+                self::FEATURE_GREET_ME,
+            );
+            $durationMs = (int) ((microtime(true) - $start) * 1000);
+
+            $llmOutput = $this->payloadSanitizer->sanitize(['greeting' => $result]);
+            $this->logger->info(
+                'LLM call completed',
+                TraceEvent::build('hello.llm.call.completed', 'llm_call', self::SERVICE_NAME, 'completed', $logCtx + [
+                    'target_app' => 'litellm',
+                    'intent' => 'hello.greet_me',
+                    'duration_ms' => $durationMs,
+                    'step_output' => $llmOutput['data'],
+                    'capture_meta' => $llmOutput['capture_meta'],
+                ]),
+            );
+
+            return $result;
+        } catch (\Throwable $e) {
+            $durationMs = (int) ((microtime(true) - $start) * 1000);
+
+            $llmOutput = $this->payloadSanitizer->sanitize([
+                'error' => $e->getMessage(),
+                'fallback' => "Hello, {$displayName}!",
+            ]);
+            $this->logger->info(
+                'LLM call failed, using fallback',
+                TraceEvent::build('hello.llm.call.failed', 'llm_call', self::SERVICE_NAME, 'failed', $logCtx + [
+                    'target_app' => 'litellm',
+                    'intent' => 'hello.greet_me',
+                    'duration_ms' => $durationMs,
+                    'error_code' => 'llm_call_failed',
+                    'step_output' => $llmOutput['data'],
+                    'capture_meta' => $llmOutput['capture_meta'],
+                ]),
+            );
+
+            return "Hello, {$displayName}!";
+        }
+    }
+
     private function callLlm(
         string $systemPrompt,
         string $userMessage,
@@ -221,6 +322,8 @@ final class HelloA2AHandler
         string $traceId,
         string $featureName,
     ): string {
+        $effectiveTraceId = '' !== $traceId ? $traceId : $requestId;
+        $sessionId = $effectiveTraceId;
         $userTag = \sprintf(
             'service=%s;feature=%s;request_id=%s',
             self::SERVICE_NAME,
@@ -235,9 +338,10 @@ final class HelloA2AHandler
             ],
             'user' => $userTag,
             'metadata' => [
-                'trace_id' => $traceId,
+                'request_id' => $requestId,
+                'trace_id' => $effectiveTraceId,
                 'trace_name' => self::SERVICE_NAME.'.'.$featureName,
-                'session_id' => $requestId,
+                'session_id' => $sessionId,
                 'generation_name' => $featureName,
                 'tags' => [
                     'agent:'.self::SERVICE_NAME,
@@ -246,6 +350,7 @@ final class HelloA2AHandler
                 'trace_user_id' => $userTag,
                 'trace_metadata' => [
                     'request_id' => $requestId,
+                    'session_id' => $sessionId,
                     'agent_name' => self::SERVICE_NAME,
                     'feature_name' => $featureName,
                 ],

@@ -11,7 +11,9 @@ use App\LLM\LlmRequestContext;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'agent:chat',
@@ -24,6 +26,10 @@ final class AgentChatCommand extends Command
     /** @var array<string, string> openai_function_name => platform_skill_id */
     private array $toolNameMap = [];
 
+    private ChatUserContext $userContext;
+
+    private bool $debug = false;
+
     public function __construct(
         private readonly LiteLlmClient $llmClient,
         private readonly SkillCatalogBuilder $skillCatalogBuilder,
@@ -32,10 +38,32 @@ final class AgentChatCommand extends Command
         parent::__construct();
     }
 
+    protected function configure(): void
+    {
+        $this
+            ->addOption('username', 'u', InputOption::VALUE_REQUIRED, 'Username for CLI context')
+            ->addOption('language', 'l', InputOption::VALUE_REQUIRED, 'Preferred language (uk, en)')
+            ->addOption('debug', 'd', InputOption::VALUE_NONE, 'Show detailed debug output (trace_id, request_id, full payloads)');
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $output->writeln('<fg=cyan;options=bold>Agent Chat</> <fg=gray>(type "exit" or Ctrl+C to quit)</>');
-        $output->writeln('');
+        $io = new SymfonyStyle($input, $output);
+
+        $this->debug = (bool) $input->getOption('debug');
+
+        $io->title('Agent Chat');
+        $io->text('<fg=gray>(type "exit" or Ctrl+C to quit)</>');
+
+        $this->userContext = $this->collectUserContext($input, $io);
+
+        $io->text(sprintf(
+            '<fg=green>Session:</> user=<fg=cyan>%s</>, lang=<fg=cyan>%s</>, platform=<fg=cyan>%s</>',
+            $this->userContext->username,
+            $this->userContext->language,
+            $this->userContext->platform,
+        ));
+        $io->newLine();
 
         $catalog = $this->skillCatalogBuilder->build();
         /** @var list<array<string, mixed>> $platformTools */
@@ -59,6 +87,12 @@ final class AgentChatCommand extends Command
         ];
 
         $traceId = bin2hex(random_bytes(16));
+
+        if ($this->debug) {
+            $output->writeln(sprintf('<fg=gray>trace_id: %s</>', $traceId));
+            $output->writeln(sprintf('<fg=gray>logs:    /admin/logs/trace/%s</>', $traceId));
+            $output->writeln('');
+        }
 
         while (true) {
             $userInput = $this->readUserInput($output);
@@ -85,6 +119,36 @@ final class AgentChatCommand extends Command
         return Command::SUCCESS;
     }
 
+    private function collectUserContext(InputInterface $input, SymfonyStyle $io): ChatUserContext
+    {
+        $usernameOption = $input->getOption('username');
+        if (\is_string($usernameOption) && '' !== trim($usernameOption)) {
+            $username = trim($usernameOption);
+        } else {
+            $defaultUsername = get_current_user();
+            $username = (string) $io->ask('Your username', $defaultUsername, static function (?string $value): string {
+                $value = trim((string) $value);
+                if ('' === $value) {
+                    throw new \RuntimeException('Username cannot be empty.');
+                }
+
+                return $value;
+            });
+        }
+
+        $languageOption = $input->getOption('language');
+        if (\is_string($languageOption) && \in_array($languageOption, ['uk', 'en'], true)) {
+            $language = $languageOption;
+        } else {
+            $language = (string) $io->choice('Preferred language', ['uk', 'en'], 'uk');
+        }
+
+        return new ChatUserContext(
+            username: $username,
+            language: $language,
+        );
+    }
+
     /**
      * @param list<array<string, mixed>> $messages
      * @param list<array<string, mixed>> $openAiTools
@@ -98,6 +162,7 @@ final class AgentChatCommand extends Command
         OutputInterface $output,
     ): array {
         $iteration = 0;
+        $actor = 'cli:'.$this->userContext->username;
 
         while ($iteration < self::MAX_TOOL_ITERATIONS) {
             ++$iteration;
@@ -108,6 +173,7 @@ final class AgentChatCommand extends Command
                 requestId: 'chat_'.bin2hex(random_bytes(8)),
                 traceId: $traceId,
                 sessionId: $traceId,
+                userId: $actor,
             );
 
             try {
@@ -145,24 +211,62 @@ final class AgentChatCommand extends Command
 
                 /** @var array<string, mixed> $arguments */
                 $arguments = (array) json_decode($argumentsJson, true, 512, JSON_THROW_ON_ERROR);
-
-                $output->writeln(sprintf('<fg=yellow>  [tool] %s</> <fg=gray>%s</>', $skillId, $argumentsJson));
+                $arguments = $this->enrichWithUserContext($arguments);
 
                 $requestId = 'chat_'.bin2hex(random_bytes(8));
 
+                if ($this->debug) {
+                    $output->writeln(sprintf(
+                        '<fg=yellow>  [tool] %s</> <fg=gray>%s</> <fg=gray>req=%s</>',
+                        $skillId,
+                        $argumentsJson,
+                        $requestId,
+                    ));
+                } else {
+                    $output->writeln(sprintf('<fg=yellow>  [tool] %s</>', $skillId));
+                }
+
                 try {
-                    $result = $this->a2aClient->invoke($skillId, $arguments, $traceId, $requestId);
+                    $result = $this->a2aClient->invoke($skillId, $arguments, $traceId, $requestId, $actor);
                 } catch (\Throwable $e) {
                     $result = ['status' => 'failed', 'error' => $e->getMessage()];
                 }
 
                 $resultJson = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                $status = (string) ($result['status'] ?? 'unknown');
+                $agent = (string) ($result['agent'] ?? 'unknown');
+                $durationMs = (int) ($result['duration_ms'] ?? 0);
 
-                $output->writeln(sprintf(
-                    '<fg=yellow>  [result] %s</> <fg=gray>(%s)</>',
-                    (string) ($result['status'] ?? 'unknown'),
-                    (string) ($result['agent'] ?? 'unknown'),
-                ));
+                $statusColor = 'completed' === $status ? 'green' : 'red';
+                if ($this->debug) {
+                    $output->writeln(sprintf(
+                        '  <fg=%s>[%s]</> <fg=gray>%s %dms</>',
+                        $statusColor,
+                        $status,
+                        $agent,
+                        $durationMs,
+                    ));
+
+                    /** @var array<string, mixed> $toolResult */
+                    $toolResult = $result['result'] ?? [];
+                    if ([] !== $toolResult) {
+                        $toolResultJson = json_encode($toolResult, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                        $output->writeln(sprintf('  <fg=gray>%s</>', $toolResultJson));
+                    }
+                } else {
+                    $output->writeln(sprintf(
+                        '  <fg=%s>[%s]</> <fg=gray>%s</>',
+                        $statusColor,
+                        $status,
+                        $agent,
+                    ));
+                }
+                if ('failed' === $status) {
+                    $output->writeln(sprintf(
+                        '  <fg=red>error: %s</>',
+                        (string) ($result['error'] ?? $result['reason'] ?? 'unknown'),
+                    ));
+                }
 
                 $messages[] = [
                     'role' => 'tool',
@@ -177,6 +281,34 @@ final class AgentChatCommand extends Command
         }
 
         return $messages;
+    }
+
+    /**
+     * Enrich tool call arguments with CLI user context (non-destructive merge).
+     *
+     * @param array<string, mixed> $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function enrichWithUserContext(array $arguments): array
+    {
+        if (!isset($arguments['author'])) {
+            $arguments['author'] = ['username' => $this->userContext->username];
+        }
+        if (!isset($arguments['platform'])) {
+            $arguments['platform'] = $this->userContext->platform;
+        }
+        if (!isset($arguments['metadata'])) {
+            $arguments['metadata'] = [];
+        }
+        /** @var array<string, mixed> $metadata */
+        $metadata = $arguments['metadata'];
+        if (!isset($metadata['channel'])) {
+            $metadata['channel'] = $this->userContext->platform.'.interactive';
+            $arguments['metadata'] = $metadata;
+        }
+
+        return $arguments;
     }
 
     private function readUserInput(OutputInterface $output): ?string
@@ -257,8 +389,19 @@ final class AgentChatCommand extends Command
             );
         }
 
+        $languageLabel = match ($this->userContext->language) {
+            'uk' => 'Ukrainian',
+            'en' => 'English',
+            default => $this->userContext->language,
+        };
+
         return <<<PROMPT
             You are an AI assistant on the AI Community Platform. You help users by answering questions and using available agent skills (tools) when appropriate.
+
+            Current user context:
+            - Username: {$this->userContext->username}
+            - Preferred language: {$languageLabel}
+            - Platform: {$this->userContext->platform}
 
             Available tools:{$toolList}
 
@@ -268,7 +411,8 @@ final class AgentChatCommand extends Command
             - After receiving tool results, present them directly to the user without rephrasing or duplicating the content. Do not re-generate or paraphrase what the agent already produced.
             - If a tool call fails, explain the error and suggest alternatives.
             - Be concise and helpful.
-            - Respond in the same language the user uses.
+            - Respond in {$languageLabel} unless the user explicitly switches language.
+            - When a tool accepts author/platform context fields, include the current user context.
             PROMPT;
     }
 }

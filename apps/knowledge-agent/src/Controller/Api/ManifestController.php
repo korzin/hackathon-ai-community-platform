@@ -46,6 +46,30 @@ final class ManifestController extends AbstractController
                     'description' => 'Extract and store knowledge from messages',
                     'tags' => ['upload', 'knowledge'],
                 ],
+                [
+                    'id' => 'knowledge.store_message',
+                    'name' => 'Knowledge Store Message',
+                    'description' => 'Persist source message with full metadata for future knowledge workflows',
+                    'tags' => ['ingestion', 'metadata', 'knowledge'],
+                ],
+            ],
+            'skill_schemas' => [
+                'knowledge.store_message' => [
+                    'description' => 'Persist source message with structured metadata and raw payload.',
+                    'input_schema' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'message' => [
+                                'type' => 'object',
+                                'description' => 'Source message object with ids, sender, chat, text, and timestamps',
+                            ],
+                            'metadata' => [
+                                'type' => 'object',
+                                'description' => 'Additional contextual metadata (channel, event_type, tags, etc.)',
+                            ],
+                        ],
+                    ],
+                ],
             ],
             'permissions' => ['admin', 'moderator'],
             'commands' => ['/wiki', '/knowledge'],
@@ -57,6 +81,11 @@ final class ManifestController extends AbstractController
                     'db_name' => 'knowledge_agent',
                     'user' => 'knowledge_agent',
                     'password' => 'knowledge_agent',
+                    'startup_migration' => [
+                        'enabled' => true,
+                        'mode' => 'best_effort',
+                        'command' => 'php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration || true',
+                    ],
                 ],
                 'redis' => [
                     'db_number' => 1,

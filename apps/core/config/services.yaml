@@ -56,6 +56,10 @@ services:
         arguments:
             $gatewayToken: '%app.openclaw_gateway_token%'
 
+    App\A2AGateway\A2AClient:
+        arguments:
+            $internalToken: '%app.internal_token%'
+
     App\AgentInstaller\Strategy\PostgresInstallStrategy:
         arguments:
             $connection: '@doctrine.dbal.provisioner_connection'
@@ -75,6 +79,10 @@ services:
             $opensearch: '@App\AgentInstaller\Strategy\OpenSearchInstallStrategy'
 
     App\AgentInstaller\AgentMigrationTrigger:
+        arguments:
+            $internalToken: '%app.internal_token%'
+
+    App\AgentAction\NewsCrawlTrigger:
         arguments:
             $internalToken: '%app.internal_token%'
 

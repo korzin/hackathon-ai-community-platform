@@ -8,7 +8,57 @@
 | **Playwright** | Browser engine (Chromium) |
 | **REST helper** | API requests (no browser) |
 
-All E2E tests live in `tests/e2e/`. They test the **full running stack** (requires `make up`).
+All E2E tests live in `tests/e2e/`. They test the **full running stack** against
+dedicated E2E containers backed by isolated data stores (`_test` suffix databases,
+separate Redis DBs, separate RabbitMQ vhost).
+
+---
+
+## Isolation Architecture
+
+E2E tests run against **duplicate containers** of every service, each connected to
+isolated data stores. The same Docker image and code — only environment variables differ.
+
+**Key principle:** Agent developers write ZERO infrastructure code to support E2E testing.
+Isolation is purely via Docker Compose environment overrides using `profiles: [e2e]`.
+
+### Resource Isolation
+
+| Service | Prod resource | Test resource | Mechanism |
+|---------|--------------|---------------|-----------|
+| Postgres | `{agent_name}` | `{agent_name}_test` | Separate database |
+| Redis | Even DB (0, 2, 4…) | Odd DB (1, 3, 5…) | Separate DB number |
+| OpenSearch | `{index}` | `{index}_test` | Separate index |
+| RabbitMQ | `/` (default vhost) | `test` | Separate vhost |
+
+### Redis DB Assignments
+
+| Service | Prod DB | Test DB |
+|---------|---------|---------|
+| Core | 0 | 1 |
+| Knowledge Agent | 2 | 3 |
+| (future agents) | 4, 6, 8… | 5, 7, 9… |
+
+### E2E Container Ports (direct, no Traefik)
+
+| Service | Prod port (Traefik) | E2E port (direct) |
+|---------|--------------------|--------------------|
+| Core | 80 | 18080 |
+| Knowledge Agent | 8083 | 18083 |
+| News-Maker Agent | 8084 | 18084 |
+| Hello Agent | 8085 | 18085 |
+| OpenClaw Gateway | 8082 / 18789 | 28789 |
+
+### A2A Routing in E2E
+
+```
+E2E test → core-e2e → openclaw-gateway-e2e → agent-e2e containers
+               │                                    │
+               └── ai_community_platform_test DB    └── agent_test DBs
+```
+
+`make e2e-prepare` registers all agents in `core-e2e` with E2E container URLs
+and enables them, so A2A message chains stay within the E2E graph.
 
 ---
 
@@ -36,8 +86,14 @@ tests/e2e/
 ## Running Tests
 
 ```bash
-# Full E2E suite (stack must be up)
+# Full E2E suite (starts all E2E containers automatically)
 make e2e
+
+# Prepare only (DBs + RabbitMQ vhost + migrations + agent registration)
+make e2e-prepare
+
+# Stop E2E containers
+make e2e-cleanup
 
 # Specific tag only
 cd tests/e2e && npx codeceptjs run --steps --grep @smoke
@@ -49,6 +105,14 @@ HEADLESS=false make e2e
 # Custom base URL
 BASE_URL=http://staging.example.com make e2e
 ```
+
+`make e2e` and `make e2e-smoke` always run `make e2e-prepare` first.
+This provisions all test databases, RabbitMQ `test` vhost, runs migrations
+for all services, registers and enables agents in `core-e2e`, and starts
+all E2E containers.
+
+**Important:** `make up` starts only prod services. E2E containers are started
+only via `make e2e-prepare` (using `docker compose --profile e2e`).
 
 ---
 
@@ -169,7 +233,12 @@ See [agent-requirements/agent-state-model.md](agent-state-model.md) for badge se
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BASE_URL` | `http://localhost` | Platform base URL |
+| `BASE_URL` | `http://localhost:18080` | Core E2E base URL |
+| `CORE_DB_NAME` | `ai_community_platform_test` | Core test DB for SQL-backed helpers |
+| `KNOWLEDGE_URL` | `http://localhost:18083` | Knowledge Agent E2E URL |
+| `NEWS_URL` | `http://localhost:18084` | News-Maker Agent E2E URL |
+| `HELLO_URL` | `http://localhost:18085` | Hello Agent E2E URL |
+| `OPENCLAW_URL` | `http://localhost:28789` | OpenClaw Gateway E2E URL |
 | `TRAEFIK_API` | `http://localhost:8080` | Traefik dashboard API |
 | `ADMIN_PASSWORD` | `test-password` | Admin login password |
 | `HEADLESS` | `true` | Set to `false` to see browser |

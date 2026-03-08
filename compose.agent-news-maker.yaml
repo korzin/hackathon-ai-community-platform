@@ -11,6 +11,7 @@ services:
       - traefik.http.services.news-maker-agent.loadbalancer.server.port=8000
       - ai.platform.agent=true
     environment:
+      MIGRATE_ON_START: "1"
       DATABASE_URL: postgresql://news_maker_agent:news_maker_agent@postgres:5432/news_maker_agent
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: dev-key
@@ -19,6 +20,35 @@ services:
       PLATFORM_CORE_URL: http://core
       APP_INTERNAL_TOKEN: dev-internal-token
       OPENSEARCH_URL: http://opensearch:9200
+      ADMIN_PUBLIC_URL: http://localhost:8084/admin/sources
+    volumes:
+      - ./apps/news-maker-agent:/app
+    depends_on:
+      - postgres
+      - litellm
+      - opensearch
+    networks:
+      - dev-edge
+
+  news-maker-agent-e2e:
+    profiles: [e2e]
+    build:
+      context: .
+      dockerfile: docker/news-maker-agent/Dockerfile
+    environment:
+      MIGRATE_ON_START: "1"
+      DATABASE_URL: postgresql://news_maker_agent:news_maker_agent@postgres:5432/news_maker_agent_test
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_API_KEY: dev-key
+      RANKER_MODEL: minimax/minimax-m2.5
+      REWRITER_MODEL: minimax/minimax-m2.5
+      PLATFORM_CORE_URL: http://core-e2e
+      APP_INTERNAL_TOKEN: dev-internal-token
+      OPENSEARCH_URL: http://opensearch:9200
+      ADMIN_PUBLIC_URL: http://localhost:18084/admin/sources
+      ENABLE_TEST_ENDPOINTS: "1"
+    ports:
+      - "18084:8000"
     volumes:
       - ./apps/news-maker-agent:/app
     depends_on:

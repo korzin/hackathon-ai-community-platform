@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY apps/knowledge-agent/ /var/www/html/
+COPY docker/knowledge-agent/entrypoint.sh /usr/local/bin/knowledge-agent-entrypoint
 
 RUN a2enmod rewrite \
     && sed -ri \
@@ -23,6 +24,10 @@ RUN a2enmod rewrite \
         /etc/apache2/apache2.conf \
     && sed -ri \
         -e 's/AllowOverride None/AllowOverride All/g' \
-        /etc/apache2/apache2.conf
+        /etc/apache2/apache2.conf \
+    && chmod +x /usr/local/bin/knowledge-agent-entrypoint
 
 WORKDIR /var/www/html
+
+ENTRYPOINT ["/usr/local/bin/knowledge-agent-entrypoint"]
+CMD ["apache2-foreground"]
