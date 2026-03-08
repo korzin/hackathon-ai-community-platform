@@ -30,8 +30,6 @@ __pycache__/
 docker/volumes/
 .local/
 docker/openclaw/.env
-compose.override.yaml
-compose.override.yml
 
 # Claude / agent artifacts
 .claude/*
