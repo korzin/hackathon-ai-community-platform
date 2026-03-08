@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Controller\Api\A2AGateway;
+namespace App\Controller\Api\OpenClaw;
 
-use App\A2AGateway\AgentInvokeBridge;
+use App\AgentDiscovery\AgentInvokeBridge;
 use App\Logging\PayloadSanitizer;
 use App\Logging\TraceEvent;
 use App\Observability\LangfuseIngestionClient;
@@ -15,7 +15,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
-final class SendMessageController extends AbstractController
+final class InvokeController extends AbstractController
 {
     public function __construct(
         private readonly AgentInvokeBridge $bridge,

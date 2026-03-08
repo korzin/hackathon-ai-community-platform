@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api\Internal;
 
-use App\A2AGateway\OpenClawSyncService;
+use App\AgentDiscovery\OpenClawSyncService;
 use App\AgentRegistry\AgentRegistryAuditLogger;
 use App\AgentRegistry\AgentRegistryRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;

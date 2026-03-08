@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\A2AGateway;
+namespace App\AgentDiscovery;
 
 use App\AgentRegistry\AgentRegistryInterface;
 

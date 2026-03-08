@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api\Internal;
 
-use App\A2AGateway\OpenClawSyncService;
+use App\AgentDiscovery\OpenClawSyncService;
 use App\AgentInstaller\AgentInstallerService;
 use App\AgentInstaller\AgentInstallException;
 use App\AgentInstaller\AgentMigrationTrigger;

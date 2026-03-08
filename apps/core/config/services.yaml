@@ -38,18 +38,18 @@ services:
         arguments:
             $cache: '@cache.agent_registry'
 
-    App\A2AGateway\OpenClawSyncService:
+    App\AgentDiscovery\OpenClawSyncService:
         arguments:
             $cache: '@cache.agent_registry'
             $pushUrl: '%app.openclaw_discovery_push_url%'
             $gatewayToken: '%app.openclaw_gateway_token%'
 
-    App\Controller\Api\A2AGateway\DiscoveryController:
+    App\Controller\Api\OpenClaw\DiscoveryController:
         arguments:
             $cache: '@cache.agent_registry'
             $gatewayToken: '%app.openclaw_gateway_token%'
 
-    App\Controller\Api\A2AGateway\SendMessageController:
+    App\Controller\Api\OpenClaw\InvokeController:
         arguments:
             $gatewayToken: '%app.openclaw_gateway_token%'
 

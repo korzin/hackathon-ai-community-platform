@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Controller\Admin;
 
-use App\A2AGateway\AgentConventionVerifier;
-use App\A2AGateway\AgentDiscoveryService;
-use App\A2AGateway\AgentManifestFetcher;
+use App\AgentDiscovery\AgentConventionVerifier;
+use App\AgentDiscovery\AgentDiscoveryService;
+use App\AgentDiscovery\AgentManifestFetcher;
 use App\AgentRegistry\AgentRegistryInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;

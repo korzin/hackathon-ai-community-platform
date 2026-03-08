@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Command;
 
-use App\A2AGateway\AgentConventionVerifier;
-use App\A2AGateway\AgentDiscoveryService;
-use App\A2AGateway\AgentManifestFetcher;
+use App\AgentDiscovery\AgentConventionVerifier;
+use App\AgentDiscovery\AgentDiscoveryService;
+use App\AgentDiscovery\AgentManifestFetcher;
 use App\AgentRegistry\AgentRegistryInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
