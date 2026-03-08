@@ -46,6 +46,7 @@ final class PipelineAdminController extends AbstractController
             'stats' => $stats,
             'status_filter' => $statusFilter,
             'internal_token' => $this->internalToken,
+            'admin_public_url' => $this->adminPublicUrl,
         ]);
     }
 }

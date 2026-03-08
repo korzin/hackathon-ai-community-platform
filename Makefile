@@ -258,7 +258,7 @@ hello-analyse:
 	$(COMPOSE) exec hello-agent ./vendor/bin/phpstan analyse
 
 dev-reporter-analyse:
-	$(COMPOSE) exec dev-reporter-agent ./vendor/bin/phpstan analyse
+	$(COMPOSE) exec dev-reporter-agent ./vendor/bin/phpstan analyse --memory-limit=512M
 
 knowledge-analyse:
 	$(COMPOSE) exec knowledge-agent ./vendor/bin/phpstan analyse

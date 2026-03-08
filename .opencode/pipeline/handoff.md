@@ -45,10 +45,17 @@
 
 ## Validator
 
-- **Status**: pending
-- **PHPStan**: —
-- **CS-check**: —
-- **Files fixed**: —
+- **Status**: done
+- **PHPStan**:
+  - `apps/dev-reporter-agent/`: pass
+- **CS-check**:
+  - `apps/dev-reporter-agent/`: pass
+- **Files fixed**:
+  - `Makefile`
+  - `apps/dev-reporter-agent/src/A2A/DevReporterA2AHandler.php`
+  - `apps/dev-reporter-agent/src/Controller/Admin/PipelineAdminController.php`
+  - `apps/dev-reporter-agent/tests/_support/FunctionalTester.php`
+  - `apps/dev-reporter-agent/tests/_support/UnitTester.php`
 
 ## Tester
 
@@ -62,3 +69,4 @@
 - **Docs created/updated**: —
 
 ---
+- **Commit (coder)**: 8be54d9

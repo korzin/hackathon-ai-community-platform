@@ -243,6 +243,8 @@ final class DevReporterA2AHandler
 
     /**
      * @param array<string, mixed> $logCtx
+     *
+     * @return array<string, string>
      */
     private function handleUnknown(string $intent, string $requestId, array $logCtx): array
     {

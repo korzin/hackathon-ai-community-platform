@@ -10,12 +10,41 @@ model_list:
       api_key: os.environ/OPENROUTER_API_KEY
 
   # ── Free models (OpenRouter) ─────────────────────
-  # Virtual "free" model — routes to the best available free model
+  # "free" = single model_name with multiple deployments.
+  # LiteLLM load-balances across them and auto-retries
+  # on 429 (rate limit) using the next deployment.
   - model_name: free
     litellm_params:
       model: openrouter/qwen/qwen3-coder-480b:free
       api_key: os.environ/OPENROUTER_API_KEY
-  # Free model fallbacks
+      rpm: 20   # rate limit hint for load balancer
+      tpm: 50000
+  - model_name: free
+    litellm_params:
+      model: openrouter/deepseek/deepseek-r1:free
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+      tpm: 50000
+  - model_name: free
+    litellm_params:
+      model: openrouter/meta-llama/llama-4-maverick:free
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+      tpm: 50000
+  - model_name: free
+    litellm_params:
+      model: openrouter/google/gemini-2.5-flash:free
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+      tpm: 50000
+  - model_name: free
+    litellm_params:
+      model: openrouter/meta-llama/llama-4-scout:free
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+      tpm: 50000
+
+  # Named aliases for direct access to specific free models
   - model_name: free/qwen-coder
     litellm_params:
       model: openrouter/qwen/qwen3-coder-480b:free
@@ -32,10 +61,14 @@ model_list:
     litellm_params:
       model: openrouter/google/gemini-2.5-flash:free
       api_key: os.environ/OPENROUTER_API_KEY
-  - model_name: free/llama-4-scout
-    litellm_params:
-      model: openrouter/meta-llama/llama-4-scout:free
-      api_key: os.environ/OPENROUTER_API_KEY
+
+router_settings:
+  routing_strategy: "least-busy"         # розподіляє запити між deployments
+  num_retries: 3                          # кількість retry при 429
+  retry_after: 5                          # секунд між retry
+  allowed_fails: 3                        # скільки 429 перед cooldown
+  cooldown_time: 60                       # секунд cooldown для провайдера що впав
+  enable_pre_call_checks: true            # перевіряє rpm/tpm перед дзвінком
 
 general_settings:
   store_model_in_db: true
