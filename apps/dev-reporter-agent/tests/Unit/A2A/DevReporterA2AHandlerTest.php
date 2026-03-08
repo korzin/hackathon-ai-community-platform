@@ -145,14 +145,17 @@ final class DevReporterA2AHandlerTest extends Unit
         $this->connection->expects($this->once())
             ->method('fetchAllAssociative')
             ->with(
-                $this->stringContains("INTERVAL '7 days'"),
-                $this->callback(static fn (array $params): bool => 5 === $params['limit'] && 'failed' === $params['status']),
+                $this->stringContains('make_interval'),
+                $this->callback(static fn (array $params): bool => 5 === $params['limit'] && 'failed' === $params['status'] && 7 === $params['days']),
             )
             ->willReturn([]);
 
         $this->connection->expects($this->once())
             ->method('fetchAssociative')
-            ->with($this->stringContains("INTERVAL '7 days'"), [])
+            ->with(
+                $this->stringContains('make_interval'),
+                $this->callback(static fn (array $params): bool => 7 === $params['days']),
+            )
             ->willReturn(['total' => 0, 'passed' => 0, 'failed' => 0, 'pass_rate' => 0.0, 'avg_duration' => 0.0]);
 
         $handler = $this->makeHandler();
